@@ -302,3 +302,230 @@ for (const owner of ["New reviewer", ""]) {
     assert.equal(ui.get("version").textContent, "Record version 2");
   });
 }
+
+function comparisonFixture(ui) {
+  ui.evaluate(`detail.run.version=9; detail.run.snapshot_id="snapshot-b";
+    detail.run.owner="Assigned after submission";
+    detail.snapshots=[
+      {id:"snapshot-old",run_version:1,manifest:{evidence:[{name:"unrelated.txt",sha256:"old"}]}},
+      {id:"snapshot-b",run_version:6,manifest:{
+        title:"Revised package",summary:"Same summary",owner:"Reviewer",is_demo:true,
+        evidence:[{name:"added.txt",sha256:"new"},{name:"changed.txt",sha256:"b"},{name:"same.txt",sha256:"same"}]}},
+      {id:"snapshot-a",run_version:3,manifest:{
+        title:"Original package",summary:"Same summary",owner:"Reviewer",is_demo:true,
+        evidence:[{name:"changed.txt",sha256:"a"},{name:"removed.txt",sha256:"gone"},{name:"same.txt",sha256:"same"}]}}
+    ]; renderDetail();`);
+}
+
+test("revision comparison identifies file changes against the preceding submission, not record version", () => {
+  const ui = harness();
+  comparisonFixture(ui);
+  assert.equal(ui.get("revision-comparison").hidden, false);
+  assert.equal(ui.get("comparison-reference").textContent, "Submission at record version 3 → 6");
+  assert.equal(ui.get("comparison-reference").title, "snapshot-a → snapshot-b");
+  assert.equal(ui.get("comparison-summary").textContent, "1 changed · 1 added · 1 removed · 1 unchanged");
+  const rows = ui.get("comparison-files").children.map(row => row.children[0].children.map(x => x.textContent));
+  assert.deepEqual(rows, [
+    ["added.txt", "added"], ["changed.txt", "changed"],
+    ["removed.txt", "removed"], ["same.txt", "unchanged"],
+  ]);
+  // Assignment at record version 9 is not a new submission or evidence change.
+  const metadata = ui.get("comparison-metadata").children;
+  assert.equal(metadata.length, 1);
+  assert.deepEqual(metadata[0].children.map(x => x.textContent), [
+    "Title: ", "Original package", " → ", "Revised package",
+  ]);
+});
+
+test("comparison previews remain attached to both displayed snapshots after another revision", async () => {
+  const ui = harness();
+  comparisonFixture(ui);
+  const requested = [];
+  ui.respond(url => {
+    requested.push(url);
+    return {text: "Evidence", status: "verified", truncated: false};
+  });
+  ui.evaluate('detail.run.snapshot_id="snapshot-c"');
+  const rows = ui.get("comparison-files").children;
+  for (const row of rows) {
+    for (const preview of row.children.filter(x => x.tagName === "DETAILS")) {
+      preview.open = true;
+      await preview.listeners.toggle();
+    }
+  }
+  assert.deepEqual(requested, [
+    "/api/runs/RUN-1/snapshots/snapshot-b/evidence/0",
+    "/api/runs/RUN-1/snapshots/snapshot-a/evidence/0",
+    "/api/runs/RUN-1/snapshots/snapshot-b/evidence/1",
+    "/api/runs/RUN-1/snapshots/snapshot-a/evidence/1",
+    "/api/runs/RUN-1/snapshots/snapshot-b/evidence/2",
+  ]);
+});
+
+test("renames including letter case appear as removal and addition, not unchanged evidence", () => {
+  const ui = harness();
+  const rows = ui.evaluate(`compareEvidence(
+    {evidence:[{name:"Results.csv",sha256:"same"},{name:"old.txt",sha256:"same"}]},
+    {evidence:[{name:"results.csv",sha256:"same"},{name:"new.txt",sha256:"same"}]}
+  )`);
+  assert.deepEqual(Array.from(rows, x => [x.name, x.change]), [
+    ["Results.csv", "removed"], ["new.txt", "added"],
+    ["old.txt", "removed"], ["results.csv", "added"],
+  ]);
+});
+
+test("unchanged submitted hashes do not conceal a later stored-file integrity failure", async () => {
+  const ui = harness();
+  comparisonFixture(ui);
+  ui.respond(() => ({text: "Modified outside the app", status: "changed", truncated: false}));
+  const sameRow = ui.get("comparison-files").children[3];
+  assert.equal(sameRow.children[0].children[1].textContent, "unchanged");
+  const preview = sameRow.children.find(x => x.tagName === "DETAILS");
+  preview.open = true;
+  await preview.listeners.toggle();
+  assert.match(preview.children[1].textContent, /^Evidence status: Changed\./);
+});
+
+test("comparison disappears for first submissions and never substitutes another record's snapshots", () => {
+  const ui = harness();
+  comparisonFixture(ui);
+  ui.evaluate('detail.snapshots=detail.snapshots.filter(x=>x.id==="snapshot-b"); renderDetail()');
+  assert.equal(ui.get("revision-comparison").hidden, true);
+  assert.equal(ui.get("comparison-files").children.length, 0);
+  comparisonFixture(ui);
+  ui.evaluate('detail.run.snapshot_id="unavailable"; renderDetail()');
+  assert.equal(ui.get("revision-comparison").hidden, true);
+});
+
+test("selecting the same experiment keeps its decision note", async () => {
+  const ui = harness();
+  ui.respond(() => ui.initial);
+  ui.get("note").value = "I have checked the methods; results are next.";
+  await ui.evaluate('selectRun("RUN-1")');
+  assert.equal(ui.get("note").value, "I have checked the methods; results are next.");
+});
+
+test("switching experiments retains separate decision notes and does not copy them between records", async () => {
+  const ui = harness();
+  const second = structuredClone(ui.initial);
+  second.run.id = "RUN-2";
+  second.run.snapshot_id = "second-a";
+  ui.respond(url => url.endsWith("RUN-2") ? second : ui.initial);
+  ui.get("note").value = "First experiment draft.";
+  await ui.evaluate('selectRun("RUN-2")');
+  assert.equal(ui.get("note").value, "");
+  ui.get("note").value = "Second experiment draft.";
+  await ui.evaluate('selectRun("RUN-1")');
+  assert.equal(ui.get("note").value, "First experiment draft.");
+  await ui.evaluate('selectRun("RUN-2")');
+  assert.equal(ui.get("note").value, "Second experiment draft.");
+});
+
+test("a draft retained across a new evidence snapshot is labeled until cleared", async () => {
+  const ui = harness();
+  const revised = structuredClone(ui.initial);
+  revised.run.snapshot_id = "snapshot-b";
+  revised.run.version = 3;
+  ui.get("note").value = "Reasoning about the previous files.";
+  ui.respond(url => url === "/api/state"
+    ? {runs: [revised.run], events: [], csrf_token: "test"}
+    : revised);
+  await ui.evaluate("refresh()");
+  assert.equal(ui.get("note").value, "Reasoning about the previous files.");
+  assert.equal(ui.get("review-draft-warning").hidden, false);
+  ui.get("note").value = "";
+  await ui.get("note").listeners.input();
+  assert.equal(ui.get("review-draft-warning").hidden, true);
+});
+
+test("typing while another experiment loads is retained on returning to the first", async () => {
+  const ui = harness();
+  let finish;
+  ui.respond(() => new Promise(resolve => { finish = resolve; }));
+  ui.get("note").value = "Beginning";
+  const pending = ui.evaluate('selectRun("RUN-2")');
+  ui.get("note").value = "Finished while waiting";
+  const second = structuredClone(ui.initial);
+  second.run.id = "RUN-2";
+  finish(second);
+  await pending;
+  ui.respond(() => ui.initial);
+  await ui.evaluate('selectRun("RUN-1")');
+  assert.equal(ui.get("note").value, "Finished while waiting");
+});
+
+for (const keepTyping of [false, true]) {
+  test(`a saved decision ${keepTyping ? "preserves newer typing" : "clears only the recorded draft"}`, async () => {
+    const ui = harness();
+    const updated = structuredClone(ui.initial);
+    updated.run.version = 2;
+    updated.run.status = "approved";
+    ui.get("actor").value = "Reviewer";
+    ui.get("note").value = "Checked the current files.";
+    let finish, saved;
+    ui.respond((url, body) => {
+      if (body) {
+        saved = body;
+        return new Promise(resolve => { finish = resolve; });
+      }
+      return url === "/api/state"
+        ? {runs: [updated.run], events: [], csrf_token: "test"}
+        : updated;
+    });
+    const pending = ui.evaluate('mutate("approved")');
+    if (keepTyping) ui.get("note").value = "New follow-up thought.";
+    finish(updated);
+    await pending;
+    assert.equal(saved.note, "Checked the current files.");
+    assert.equal(ui.get("note").value, keepTyping ? "New follow-up thought." : "");
+    // Reselecting must not resurrect the already-submitted text.
+    await ui.evaluate('selectRun("RUN-1")');
+    assert.equal(ui.get("note").value, keepTyping ? "New follow-up thought." : "");
+  });
+}
+
+test("a successful write followed by failed refresh is labeled saved and prevents duplicate decisions", async () => {
+  const ui = harness();
+  ui.get("actor").value = "Reviewer";
+  ui.get("note").value = "This was recorded.";
+  let writes = 0;
+  ui.respond((url, body) => {
+    if (body) { writes++; return ui.initial; }
+    throw new Error("Disconnected after write");
+  });
+  await ui.evaluate('mutate("approved")');
+  assert.equal(ui.get("note").value, "");
+  assert.match(ui.get("message").textContent, /action was saved/);
+  assert.equal(ui.get("approve").disabled, true);
+  await ui.evaluate('mutate("approved")');
+  assert.equal(writes, 1);
+});
+
+test("switching records while a decision saves cannot resurrect the recorded draft", async () => {
+  const ui = harness();
+  const second = structuredClone(ui.initial);
+  second.run.id = "RUN-2";
+  const approved = structuredClone(ui.initial);
+  approved.run.version = 2;
+  approved.run.status = "approved";
+  let finishSelection, finishDecision, loads = 0;
+  ui.get("actor").value = "Reviewer";
+  ui.get("note").value = "Note actually submitted for RUN-1.";
+  ui.respond((url, body) => {
+    if (body) return new Promise(resolve => { finishDecision = resolve; });
+    if (url === "/api/state") return {runs: [approved.run, second.run], events: [], csrf_token: "test"};
+    if (url.endsWith("RUN-2")) {
+      if (++loads === 1) return new Promise(resolve => { finishSelection = resolve; });
+      return second;
+    }
+    return approved;
+  });
+  const selection = ui.evaluate('selectRun("RUN-2")');
+  const decision = ui.evaluate('mutate("approved")');
+  finishSelection(second);
+  await selection;
+  finishDecision(approved);
+  await decision;
+  await ui.evaluate('selectRun("RUN-1")');
+  assert.equal(ui.get("note").value, "");
+});
