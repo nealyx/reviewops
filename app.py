@@ -7,6 +7,7 @@ import json
 import mimetypes
 import secrets
 import shutil
+import socket
 import sqlite3
 import sys
 import uuid
@@ -584,6 +585,11 @@ class ReviewStore:
 
 
 class ReviewHTTPServer(HTTPServer):
+    # Keep serialized SQLite access, but do not let an idle browser connection
+    # hold the only request handler forever. This is a per-I/O inactivity
+    # timeout, not an absolute deadline for a client that keeps sending bytes.
+    connection_timeout_seconds = 5.0
+
     def __init__(self, address, store, static_dir=None):
         if address[0] != "127.0.0.1":
             raise ValueError("ReviewOps binds only to 127.0.0.1.")
@@ -591,6 +597,13 @@ class ReviewHTTPServer(HTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.static_dir = Path(static_dir or PROJECT_DIR / "static").resolve()
         super().__init__(address, ReviewHandler)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        # Applies before the first header is read, and also bounds blocked
+        # response writes. Handler threads are deliberately not introduced.
+        connection.settimeout(self.connection_timeout_seconds)
+        return connection, address
 
 
 class ReviewHandler(BaseHTTPRequestHandler):
@@ -706,7 +719,13 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 raise APIError(415, "Use application/json.")
             try:
-                body = parse_json(self.rfile.read(length))
+                content = self.rfile.read(length)
+            except socket.timeout:
+                raise APIError(408, "The request body was not received in time.")
+            if len(content) != length:
+                raise APIError(400, "The request body ended before its declared length.")
+            try:
+                body = parse_json(content)
             except SubmissionError as error:
                 raise APIError(400, str(error))
             if not isinstance(body, dict):
