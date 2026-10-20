@@ -664,3 +664,91 @@ test("the workspace audit remains a JSON download with the existing filename", a
   assert.equal(ui.blobs.get(download.href).type,"application/json");
   assert.deepEqual(JSON.parse(await ui.blobs.get(download.href).text()),audit);
 });
+
+function savedSubmission(ui, mode="new") {
+  const saved=structuredClone(ui.initial);
+  saved.run.id=mode === "new" ? "NEW-1" : "RUN-1";
+  saved.run.title="Submitted evidence package";
+  saved.run.version=mode === "new" ? 1 : 2;
+  saved.run.snapshot_id="saved-snapshot";
+  saved.evidence=[{name:"submitted.txt",status:"verified",expected_sha256:"b".repeat(64),actual_sha256:"b".repeat(64)}];
+  return saved;
+}
+
+for(const mode of ["new","revision"]) {
+  test(`a saved ${mode} remains visibly consistent when refreshing the queue fails`,async()=>{
+    const ui=harness(), saved=savedSubmission(ui,mode), writes=[];
+    ui.get("note").value="Draft about the original evidence";
+    fillDraft(ui,mode);
+    ui.respond((url,body)=>{
+      if(body){writes.push({url,body}); return saved;}
+      throw new Error("Connection failed after saving");
+    });
+    await ui.evaluate("submitExperiment({preventDefault(){}})");
+    assert.equal(ui.get("submission-dialog").open,false);
+    assert.equal(ui.get("run-id").textContent,saved.run.id);
+    assert.equal(ui.get("detail-title").textContent,saved.run.title);
+    assert.equal(ui.get("evidence-list").children[0].children[0].children[0].textContent,"submitted.txt");
+    assert.match(ui.get("message").textContent,/Submission was saved/);
+    assert.match(ui.get("message").textContent,/queue may be out of date/);
+    assert.equal(ui.get("run-list").children.some(row=>row.dataset.runId===saved.run.id),true);
+    assert.equal(ui.get("note").value,mode === "revision" ? "Draft about the original evidence" : "");
+    if(mode === "revision") assert.equal(ui.get("review-draft-warning").hidden,false);
+    ui.get("actor").value="Reviewer";
+    ui.get("note").value="I inspected the submitted evidence now displayed";
+    await ui.evaluate('mutate("approved")');
+    assert.equal(writes[1].url,`/api/runs/${saved.run.id}/decision`);
+    assert.equal(writes[1].body.expected_version,saved.run.version);
+  });
+}
+
+for(const outcome of ["success","failure"]) {
+  test(`an older pending selection ${outcome} cannot replace a saved submission or its message`,async()=>{
+    const ui=harness(), saved=savedSubmission(ui);
+    let complete,fail;
+    ui.respond((url,body)=>{
+      if(body)return saved;
+      if(url === "/api/state")throw new Error("Queue unavailable");
+      return new Promise((resolve,reject)=>{complete=resolve; fail=reject;});
+    });
+    const selection=ui.evaluate('selectRun("RUN-1")');
+    fillDraft(ui);
+    await ui.evaluate("submitExperiment({preventDefault(){}})");
+    const savedMessage=ui.get("message").textContent;
+    if(outcome === "success")complete(ui.initial); else fail(new Error("Older request failed"));
+    await selection;
+    assert.equal(ui.get("run-id").textContent,"NEW-1");
+    assert.equal(ui.evaluate("selected"),"NEW-1");
+    assert.equal(ui.get("message").textContent,savedMessage);
+  });
+}
+
+test("reserved evidence filenames explain the backup conflict and prevent submission", async()=>{
+  const ui=harness(); fillDraft(ui);
+  let requests=0; ui.respond(()=>{requests++; return ui.initial;});
+  for(const name of ["AUX.txt","con","PrN.csv","NUL.note.txt",...Array.from({length:9},(_,i)=>`COM${i+1}.txt`),...Array.from({length:9},(_,i)=>`lpt${i+1}.csv`)]) {
+    ui.evaluate(`draft.files=[{file:{name:${JSON.stringify(name)},size:3},content:"ok\\n",reading:false,error:""}]; renderFiles()`);
+    assert.equal(ui.get("submission-save").disabled,true,name);
+    await ui.evaluate("submitExperiment({preventDefault(){}})");
+    assert.match(ui.get("submission-message").textContent,/reserved filename prevents portable workspace backups/);
+  }
+  assert.equal(requests,0);
+  for(const name of ["auxiliary.txt","COM0.csv","COM10.csv","LPT0.txt","LPT10.txt"]) {
+    ui.evaluate(`draft.files=[{file:{name:${JSON.stringify(name)},size:3},content:"ok\\n",reading:false,error:""}]; renderFiles()`);
+    assert.equal(ui.get("submission-save").disabled,false,name);
+  }
+});
+
+test("a saved synthetic revision with retained real history cannot relabel the queue after a failed refresh",async()=>{
+  const ui=harness(), saved=savedSubmission(ui,"revision");
+  saved.run.is_demo=true;
+  saved.snapshots=[
+    {id:"saved-snapshot",run_version:2,manifest:{is_demo:true,evidence:[]}},
+    {id:"snapshot-a",run_version:1,manifest:{is_demo:false,evidence:[]}},
+  ];
+  fillDraft(ui,"revision"); ui.get("submission-demo").checked=true;
+  ui.respond((url,body)=>{if(body)return saved;throw new Error("Queue unavailable");});
+  await ui.evaluate("submitExperiment({preventDefault(){}})");
+  assert.equal(ui.get("workspace-kind").textContent,"Mixed workspace");
+  assert.match(ui.get("workspace-notice").textContent,/retained history contains user submissions/);
+});

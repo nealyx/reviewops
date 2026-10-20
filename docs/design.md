@@ -57,6 +57,12 @@ evidence snapshot keeps the draft and displays its older-evidence warning.
 A successful decision clears only the submitted text, not new text typed
 while the write was pending. Reloading or closing the page clears drafts.
 
+Once a submission succeeds, its returned detail and queue entry are rendered
+before requesting a queue refresh. A failed read cannot leave old evidence
+visible while actions target the new record. Pending selections from before
+the save are invalidated, including their error messages. A refresh failure
+labels the save successful and the broader queue potentially out of date.
+
 The comparison view selects the immediately preceding submission by its record
 version, rather than treating assignment or decision versions as evidence
 changes. It compares the recorded filenames and expected hashes; previews

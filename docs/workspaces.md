@@ -105,6 +105,15 @@ split archives, and ZIP comments are refused. The supported compression methods
 are stored and deflated. Portable names exclude Windows device names, alternate
 data streams, and trailing spaces or periods.
 
+Versions before 0.4.1 could accept evidence named `aux.txt` or another reserved
+device name, even though archive export rejected it. New submissions now reject
+those names before saving. Existing retained files and manifests remain unchanged,
+and an older affected workspace still cannot use this portable archive format.
+Preserve that complete workspace on its original operating system using an
+ordinary directory backup after stopping all processes and running `prepare`.
+Do not rename files inside retained snapshots or edit their manifests: that would
+break the recorded references and hashes. No historical-name migration is provided.
+
 The database check uses a read-only, immutable SQLite connection, disables
 extension loading, restricts SQL authorization, and enables untrusted-schema
 protections where SQLite supports them. Views and virtual tables are refused.

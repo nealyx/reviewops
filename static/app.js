@@ -284,7 +284,7 @@ async function selectRun(id, activatedButton=null) {
     restoreReviewDraft(); renderQueue(!focusDetail); renderDetail();
     if(focusDetail)$("detail-title").focus();
     return true;
-  } catch(e) {message(e.message,true);return false;}
+  } catch(e) {if(ticket!==requestId)return;message(e.message,true);return false;}
 }
 async function refresh(showMessage=false) {
   state=await api("/api/state"); renderQueue();
@@ -333,6 +333,7 @@ function fileIssue(value) {
   for(const item of value.files) {
     const name=item.file.name;
     if(!/^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}$/.test(name)||name.endsWith("."))return `Rename “${name}” on your computer: use a simple filename starting with a letter or number.`;
+    if(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(name.trim()))return `Rename “${name}” on your computer: this reserved filename prevents portable workspace backups. Use a name such as “auxiliary.txt”.`;
     if(names.has(name.toLowerCase()))return `“${name}” appears more than once. Filenames must be unique, ignoring letter case.`;
     names.add(name.toLowerCase());
     if(item.file.size>limits.each)return `“${name}” exceeds 256 KiB. Remove it or choose a smaller file.`;
@@ -444,9 +445,23 @@ async function submitExperiment(event) {
   try {
     const result=await api("/api/submissions",body);
     drafts.delete(current.key);$("submission-dialog").close();draft=null;
+    // The save response is authoritative even if the next read fails. Show it
+    // before allowing actions, and retire selections started before the save.
+    ++requestId;
     rememberReviewDraft();
-    selected=result.run?.id||body.id;detail=result.run?result:null;restoreReviewDraft();
+    selected=result.run?.id||body.id;detail=result.run?result:null;
+    reviewStale=!detail||(staleVersions.get(selected)||0)>=detail.run.version;
+    if(!reviewStale)staleVersions.delete(selected);
+    restoreReviewDraft();
     $("search").value="";$("status-filter").value="";
+    if(detail) {
+      const index=state.runs.findIndex(run=>run.id===selected);
+      if(index<0)state.runs.push(detail.run);else state.runs[index]=detail.run;
+      // A newly saved synthetic revision cannot relabel retained real history.
+      state.demo=state.demo===true&&detail.run.is_demo===true&&Boolean(detail.snapshots?.length)
+        &&detail.snapshots.every(snapshot=>snapshot.manifest?.is_demo===true);
+      renderQueue(false);renderDetail();
+    } else {$("detail-content").hidden=true;$("detail-empty").hidden=false;}
     await refresh();
     message(current.mode==="revision"?"Revision submitted. The new evidence is ready for review, prior approval has reset, and earlier snapshots are retained.":"Experiment added. Its first evidence snapshot is ready for review.");
   } catch(e) {
@@ -454,7 +469,7 @@ async function submitExperiment(event) {
       if(e.status===409&&current.mode==="revision") {current.stale=true;submissionMessage("This record changed elsewhere. Refresh the latest record before submitting. Your draft and files are kept.",true);}
       else submissionMessage(e.message+" Your draft and selected files are kept.",true);
       renderSubmissionContext();
-    } else message("Submission was saved, but the workspace could not refresh: "+e.message+" Use Refresh evidence to load it.",true);
+    } else message("Submission was saved"+(detail?" and its saved evidence is shown":"")+". The queue may be out of date: "+e.message+" Use Refresh evidence to update it.",true);
   } finally {setBusy(false);}
 }
 $("search").addEventListener("input",()=>renderQueue());
