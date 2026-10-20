@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "record_type": "Executed verification of published saved outputs; awaiting human review",
+  "verified_at_utc": "2026-10-20T14:46:30+00:00",
+  "repository": "https://github.com/nealyx/egra-faced",
+  "source_commit": "229aee43e0299cbcabf5813b7d312f3c1ff74955",
+  "source_commit_url": "https://github.com/nealyx/egra-faced/commit/229aee43e0299cbcabf5813b7d312f3c1ff74955",
+  "source_tree_clean": true,
+  "verifier_path": "scripts/verify_saved_results.py",
+  "verifier_sha256": "1443384593893e8d1876cbea26d3308b4b75f3ee7fdc06290d43591523fb86ec",
+  "command": "python3 scripts/verify_saved_results.py --report <package-directory>/verification.json",
+  "command_note": "Run from the pinned EGRA checkout; output destination is normalized to avoid machine-specific paths.",
+  "exit_code": 0,
+  "bootstrap_requested": false,
+  "python_version": "3.9.6",
+  "operating_system": "Darwin",
+  "machine": "arm64",
+  "saved_manifest_source_path": "provenance/saved_artifacts.json",
+  "saved_manifest_sha256": "66ad6a536ff4abe2c3d2d761789ec73d64d873f210894ee6b0a6affed90e839d",
+  "saved_manifest_snapshot_source_commit": "33c7f21241f00e46136e4eac400a74b37e1bd61b",
+  "data_file_count": 46,
+  "data_file_set_sha256": "64ac9b869556ffd589d8dd34686ec95496d0bfad80bc19125a4ed53ad6076cbe",
+  "data_file_set_hash_format": "SHA-256 of UTF-8 JSON: sorted list of {path,sha256} entries from saved-artifacts.json, sorted by path, json.dumps(sort_keys=True,separators=(\",\",\":\")), no trailing newline.",
+  "verification_report_sha256": "b1cdbf29b17726f22b25f968662feb17fd8e60bb34efefa56b7fa9ef634ff24a",
+  "human_review_performed": false,
+  "limits": [
+    "Checks committed outputs, not EEG preprocessing, model inference, or historical execution.",
+    "Raw-DE nuisance summaries have no committed row-level classification predictions.",
+    "Fingerprint predictions omit feature_type; their four labeled summary rows are not recomputed.",
+    "Segment top-5 and within-true-video metrics are aggregated from saved flags; the full similarity/ranking arrays are absent.",
+    "Snapshot hashes establish current file identity, not original run provenance."
+  ]
+}

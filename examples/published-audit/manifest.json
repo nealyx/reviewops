@@ -1,0 +1,15 @@
+{
+  "id": "EGRA-SAVED-229AEE4",
+  "title": "EGRA: review a published saved-output audit",
+  "summary": "Automated verification of unchanged public EGRA/FACED CSV artifacts at commit 229aee43e0299cbcabf5813b7d312f3c1ff74955: 46 file hashes, 46 regression groups, and 774 summary values checked. This package awaits human review; it does not rerun EEG preprocessing or models, reproduce bootstrap intervals, or establish scientific validity.",
+  "owner": "",
+  "actor": "Automated verification import",
+  "note": "Import the public audit report, exact source/data provenance, and review scope. No human approval has been recorded. The actor is a self-reported automation label, not authenticated identity.",
+  "is_demo": false,
+  "evidence": [
+    {"name": "review-notes.txt", "path": "review-notes.txt"},
+    {"name": "verification.json", "path": "verification.json"},
+    {"name": "provenance.json", "path": "provenance.json"},
+    {"name": "saved-artifacts.json", "path": "saved-artifacts.json"}
+  ]
+}
