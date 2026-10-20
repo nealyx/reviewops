@@ -123,6 +123,9 @@ runner, or GitHub integration. Nothing is uploaded to a cloud service.
 - Submissions: 20 UTF-8 text files, 256 KiB per file, 1 MiB total evidence, and
   2 MiB per JSON request. Binary artifacts and large datasets are out of scope.
 - Previews show at most the first 32 KiB, as plain text, never executable HTML.
+  Text and its integrity label come from the same file read; a changed tail
+  beyond the displayed text still fails the hash check. Files over 8 MiB are
+  refused, including stored files enlarged outside the app.
 - The server binds to `127.0.0.1`, checks Host/Origin, and requires a local
   request token for writes. Other processes running as your OS user remain
   outside that boundary.

@@ -50,6 +50,12 @@ snapshot; refreshing loads the newer package. A preview error is shown rather
 than silently substituting current evidence. Assignment changes preserve an
 unfinished decision note, including when the reviewer is cleared.
 
+Each preview hashes and retains its text prefix from one opened file stream.
+Replacing a file between separate hash and preview reads therefore cannot
+mislabel replacement text as verified. The full file is checked up to the 8 MiB
+limit, even though only the first 32 KiB is displayed. This does not freeze the
+path's contents after the read or prevent outside edits.
+
 Submissions write files into a fresh directory during the transaction. Handled
 failures remove that new directory and roll back the database. A process or power
 failure can leave an unreferenced directory; there is no automatic cleanup claim.
