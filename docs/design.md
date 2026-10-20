@@ -77,6 +77,30 @@ Filesystem writes and SQLite commits are not one cross-resource atomic operation
 The app retains earlier snapshots. SQLite triggers reject ordinary event and
 snapshot updates/deletes, but the database owner can bypass these controls.
 
+## Portable review summaries
+
+A summary captures one detail response inside one database read snapshot,
+checks its record version against the version displayed in the page, and then
+renders only that captured result. A stale request returns 409. A pending
+selection in the browser cannot change the experiment ID, version, or filename
+of a summary already requested. Downloading does not submit draft notes or
+write a new event.
+
+The document keeps effective status, recorded review status, current hash
+observations, historical expected hashes, and event references separate. Only
+current evidence is checked during generation; retained earlier manifests are
+explicitly not claims about their files' present integrity. Unknown legacy
+references remain unknown. The current assignee is not used as a substitute for
+a decision's actor label.
+
+The renderer escapes user-entered text, includes only inline styles, and embeds
+a restrictive content security policy for offline use. It adds no evidence
+bodies, storage fields, or request token. User-entered text can still contain
+sensitive information. A synthetic classification requires every included
+snapshot and the current run to be marked synthetic, and does not remove the
+instruction to review names and notes before sharing. The document is neither
+an encrypted export nor a restorable workspace backup.
+
 ## Upgrading the first prototype
 
 Existing databases are extended in place. Legacy manifests receive snapshots

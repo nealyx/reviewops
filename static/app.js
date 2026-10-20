@@ -5,6 +5,7 @@ let state = {runs:[],events:[]}, selected = null, detail = null, busy = false, r
 let draft = null;
 const drafts = new Map();
 const reviewDrafts = new Map();
+const staleVersions = new Map();
 const fields = {id:"submission-id",title:"submission-run-title",summary:"submission-summary",owner:"submission-owner",actor:"submission-actor",note:"submission-note"};
 function el(tag, cls, value) {
   const n = document.createElement(tag);
@@ -41,6 +42,7 @@ function syncControls() {
   $("refresh").disabled=busy; $("export").disabled=busy||!state.csrf_token;
   $("add-experiment").disabled=busy||!state.csrf_token;
   $("submit-revision").disabled=busy||!detail;
+  $("download-summary").disabled=busy||reviewStale||!detail;
   $("approve").disabled=busy||reviewStale||!detail||detail.run.evidence_status!=="verified";
   $("changes").disabled=busy||reviewStale||!detail; $("assign").disabled=busy||reviewStale||!detail;
   $("submission-fields").disabled=busy;
@@ -50,6 +52,40 @@ function syncControls() {
   if(draft) $("submission-save").textContent=busy?"Saving…":draft.mode==="revision"?"Submit revision":"Add experiment";
 }
 function setBusy(value) { busy=value; syncControls(); }
+function markStaleVersion(runId, version) {
+  staleVersions.set(runId,Math.max(version,staleVersions.get(runId)||0));
+  if(detail?.run.id===runId&&detail.run.version<=version)reviewStale=true;
+}
+function downloadFile(content, type, filename) {
+  const url=URL.createObjectURL(new Blob([content],{type}));
+  try { const a=el("a",""); a.href=url; a.download=filename; a.click(); }
+  finally {setTimeout(()=>URL.revokeObjectURL(url),1000);}
+}
+async function downloadSummary() {
+  if(busy||reviewStale||!detail)return;
+  // An already-pending selection may complete during this request. Keep both
+  // the request and its result tied to the record visible when it began.
+  const runId=detail.run.id, version=detail.run.version;
+  setBusy(true); message("");
+  try {
+    let response;
+    try {response=await fetch(`/api/runs/${encodeURIComponent(runId)}/summary?expected_version=${version}`);}
+    catch {throw new Error("Could not reach the local workspace. Check that it is running, then try again.");}
+    if(!response.ok) {
+      let value={}; try {value=await response.json();} catch {}
+      const error=new Error(value.error||value.message||"The review summary could not be downloaded.");
+      error.status=response.status; throw error;
+    }
+    const html=await response.text();
+    downloadFile(html,"text/html; charset=utf-8",`reviewops-${runId}-v${version}.html`);
+    message(`Review summary downloaded for ${runId}, record version ${version}. It contains saved history; draft notes are excluded. Review before sharing.`);
+  } catch(e) {
+    if(e.status===409) {
+      markStaleVersion(runId,version);
+      message(`${runId} changed elsewhere. Refresh evidence and inspect the latest record before downloading its summary. Your draft note is kept.`,true);
+    } else message(`Could not download the review summary. ${e.message}`,true);
+  } finally {setBusy(false);}
+}
 function renderWorkspaceNotice() {
   const demo=state.runs.filter(r=>r.is_demo).length, real=state.runs.length-demo;
   const historicalUserData=demo&&!real&&state.demo===false;
@@ -243,7 +279,9 @@ async function selectRun(id, activatedButton=null) {
     const focusDetail=activatedButton&&document.activeElement===activatedButton;
     // Capture at response time as the reviewer may keep typing while it loads.
     rememberReviewDraft();
-    selected=id; detail=result; reviewStale=false; restoreReviewDraft(); renderQueue(!focusDetail); renderDetail();
+    selected=id; detail=result; reviewStale=(staleVersions.get(id)||0)>=result.run.version;
+    if(!reviewStale)staleVersions.delete(id);
+    restoreReviewDraft(); renderQueue(!focusDetail); renderDetail();
     if(focusDetail)$("detail-title").focus();
     return true;
   } catch(e) {message(e.message,true);return false;}
@@ -260,13 +298,13 @@ async function refresh(showMessage=false) {
 }
 async function mutate(action) {
   if(busy||reviewStale||!detail)return;
-  const runId=selected, originalNote=$("note").value;
+  const runId=selected, version=detail.run.version, originalNote=$("note").value;
   const actor=$("actor").value.trim(), note=$("note").value.trim(), owner=$("owner").value.trim();
   if(!actor){message("Enter your name to record this action.",true);$("actor").focus();return;}
   if(action!=="assign"&&!note){message("Add a decision note explaining what you checked.",true);$("note").focus();return;}
   setBusy(true); let saved=false;
   try {
-    const body={actor,expected_version:detail.run.version};
+    const body={actor,expected_version:version};
     if(action==="assign")body.owner=owner; else {body.decision=action;body.note=note;}
     await api(`/api/runs/${encodeURIComponent(runId)}/${action==="assign"?"assign":"decision"}`,body);
     saved=true;
@@ -278,8 +316,8 @@ async function mutate(action) {
     await refresh();
     message(action==="assign"?"Reviewer assignment saved.":action==="approved"?"Review approved and recorded in the audit history.":"Changes requested and recorded in the audit history.");
   } catch(e) {
-    if(saved){reviewStale=true;message("Your action was saved, but the workspace could not refresh. Use Refresh evidence before recording another action.",true);}
-    else if(e.status===409){reviewStale=true;message("This record changed elsewhere. Refresh evidence and inspect the latest record before trying again. Your note is kept.",true);}
+    if(saved){markStaleVersion(runId,version);message("Your action was saved, but the workspace could not refresh. Use Refresh evidence before recording another action.",true);}
+    else if(e.status===409){markStaleVersion(runId,version);message("This record changed elsewhere. Refresh evidence and inspect the latest record before trying again. Your note is kept.",true);}
     else message(e.message,true);
   } finally {setBusy(false);}
 }
@@ -428,6 +466,7 @@ $("approve").addEventListener("click",()=>mutate("approved"));
 $("changes").addEventListener("click",()=>mutate("changes_requested"));
 $("add-experiment").addEventListener("click",()=>openSubmission("new"));
 $("submit-revision").addEventListener("click",()=>openSubmission("revision"));
+$("download-summary").addEventListener("click",downloadSummary);
 $("submission-close").addEventListener("click",closeSubmission);
 $("submission-cancel").addEventListener("click",closeSubmission);
 $("submission-dialog").addEventListener("cancel",event=>{if(busy)event.preventDefault();else captureDraft();});
@@ -442,8 +481,8 @@ $("submission-files").addEventListener("change",()=>{
 $("export").addEventListener("click",async()=>{
   if(busy)return;setBusy(true);
   try {
-    const snapshot=await api("/api/export"), url=URL.createObjectURL(new Blob([JSON.stringify(snapshot,null,2)],{type:"application/json"}));
-    const a=el("a","");a.href=url;a.download="reviewops-audit.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const snapshot=await api("/api/export");
+    downloadFile(JSON.stringify(snapshot,null,2),"application/json","reviewops-audit.json");
     message(!state.runs.length?"Audit export downloaded for an empty workspace.":snapshot.demo?"Audit export downloaded with synthetic records.":"Audit export downloaded, including user-submitted records.");
   }catch(e){message(e.message,true);}finally{setBusy(false);}
 });

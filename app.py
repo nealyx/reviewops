@@ -15,8 +15,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 from submissions import SubmissionError, parse_json, prepare_submission, read_manifest
+from review_summary import SUMMARY_CSP, render_review_summary
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -537,6 +538,14 @@ class ReviewStore:
                 "events": state["events"],
             }
 
+    def review_summary(self, run_id, expected_version):
+        expected_version = self._version({"expected_version": expected_version})
+        with self._read_snapshot():
+            detail = self.detail(run_id)
+            if detail["run"]["version"] != expected_version:
+                raise APIError(409, "This run changed. Refresh before downloading its review summary.")
+        return render_review_summary(detail, now())
+
     @staticmethod
     def _version(body):
         version = body.get("expected_version")
@@ -628,7 +637,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 raise APIError(403, "Missing or invalid local request token. Refresh the page.")
 
     def _send(self, status, payload, content_type="application/json; charset=utf-8",
-              download=False):
+              download=False, summary_download=False):
         if isinstance(payload, (dict, list)):
             payload = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         elif isinstance(payload, str):
@@ -641,10 +650,13 @@ class ReviewHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
+                         SUMMARY_CSP if summary_download else
                          "default-src 'self'; script-src 'self'; style-src 'self'; "
                          "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
                          "base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-        if download:
+        if summary_download:
+            self.send_header("Content-Disposition", 'attachment; filename="reviewops-summary.html"')
+        elif download:
             self.send_header("Content-Disposition", 'attachment; filename="reviewops-export.json"')
         self.end_headers()
         self.wfile.write(payload)
@@ -655,13 +667,27 @@ class ReviewHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self._check_request()
-            path = unquote(urlsplit(self.path).path)
+            request_url = urlsplit(self.path)
+            path = unquote(request_url.path)
             if path == "/api/state":
                 state = self.server.store.state()
                 state["csrf_token"] = self.server.token
                 self._send(200, state)
             elif path == "/api/export":
                 self._send(200, self.server.store.export(), download=True)
+            elif (path.startswith("/api/runs/") and len(path.split("/")) == 5
+                  and path.split("/")[4] == "summary"):
+                try:
+                    query = parse_qsl(request_url.query, keep_blank_values=True,
+                                      strict_parsing=True, max_num_fields=2)
+                except ValueError:
+                    raise APIError(400, "One positive expected_version query parameter is required.")
+                if (len(query) != 1 or query[0][0] != "expected_version"
+                        or not query[0][1].isascii() or not query[0][1].isdigit()
+                        or len(query[0][1]) > 20 or int(query[0][1]) < 1):
+                    raise APIError(400, "One positive expected_version query parameter is required.")
+                document = self.server.store.review_summary(path.split("/")[3], int(query[0][1]))
+                self._send(200, document, "text/html; charset=utf-8", summary_download=True)
             elif path.startswith("/api/runs/") and len(path.split("/")) == 4:
                 self._send(200, self.server.store.detail(path.split("/")[3]))
             elif (path.startswith("/api/runs/") and len(path.split("/")) == 6

@@ -34,11 +34,16 @@ class Element {
   showModal() { this.open = true; }
   close() { this.open = false; }
   reportValidity() { return true; }
+  click() {
+    if(this.tagName === "A") this.ownerDocument.downloads.push({href: this.href, filename: this.download});
+  }
 }
 
 function harness() {
   const elements = new Map();
   const document = {};
+  document.downloads = [];
+  const blobs = new Map();
   document.body = new Element("body", document);
   document.activeElement = document.body;
   const get = (id) => {
@@ -67,7 +72,10 @@ function harness() {
     document,
     // Hold startup refresh; each test supplies deterministic API responses.
     fetch: () => new Promise(() => {}),
-    console, TextDecoder, URL, Blob, setTimeout,
+    console, TextDecoder, URL: class extends URL {
+      static createObjectURL(blob) {const url=`blob:test-${blobs.size}`; blobs.set(url,blob); return url;}
+      static revokeObjectURL() {}
+    }, Blob, setTimeout,
     initial,
   });
   vm.runInContext(source, context);
@@ -76,6 +84,8 @@ function harness() {
     + 'selected=initial.run.id; detail=initial; renderDetail();', context);
   return {
     get, initial, document,
+    blobs,
+    fetchWith: (callback) => {context.fetch = callback;},
     evaluate: (code) => vm.runInContext(code, context),
     respond: (callback) => {
       context.respond = callback;
@@ -528,4 +538,129 @@ test("switching records while a decision saves cannot resurrect the recorded dra
   await decision;
   await ui.evaluate('selectRun("RUN-1")');
   assert.equal(ui.get("note").value, "");
+});
+
+test("review summary downloads the displayed version without submitting a draft note", async () => {
+  const ui = harness(), requests = [];
+  ui.get("note").value = "Unfinished private reasoning";
+  ui.fetchWith(async (...args) => {
+    requests.push(args);
+    return {ok: true, text: async () => "<!doctype html><title>Saved review</title>"};
+  });
+  await ui.get("download-summary").listeners.click();
+  assert.deepEqual(requests, [["/api/runs/RUN-1/summary?expected_version=1"]]);
+  const [download] = ui.document.downloads;
+  assert.equal(download.filename, "reviewops-RUN-1-v1.html");
+  assert.equal(ui.blobs.get(download.href).type, "text/html; charset=utf-8");
+  assert.equal(await ui.blobs.get(download.href).text(), "<!doctype html><title>Saved review</title>");
+  assert.equal(ui.get("note").value, "Unfinished private reasoning");
+  assert.match(ui.get("message").textContent, /RUN-1, record version 1/);
+  assert.equal(ui.get("download-summary").disabled, false);
+});
+
+test("a pending selection cannot relabel a downloaded summary as a different experiment", async () => {
+  const ui = harness();
+  let finishSelection, finishDownload;
+  const second = structuredClone(ui.initial);
+  second.run.id = "RUN-2"; second.run.version = 7;
+  ui.respond(() => new Promise(resolve => {finishSelection=resolve;}));
+  ui.fetchWith(() => new Promise(resolve => {finishDownload=resolve;}));
+  const selection = ui.evaluate('selectRun("RUN-2")');
+  const download = ui.get("download-summary").listeners.click();
+  assert.equal(ui.get("download-summary").disabled, true);
+  finishSelection(second); await selection;
+  ui.get("note").value = "Second experiment draft";
+  finishDownload({ok: true, text: async () => "RUN-1 saved report"}); await download;
+  assert.equal(ui.document.downloads[0].filename, "reviewops-RUN-1-v1.html");
+  assert.match(ui.get("message").textContent, /RUN-1, record version 1/);
+  assert.equal(ui.evaluate("selected"), "RUN-2");
+  assert.equal(ui.get("note").value, "Second experiment draft");
+});
+
+test("a stale summary produces no file and keeps the draft until the latest record is refreshed", async () => {
+  const ui = harness();
+  ui.get("note").value = "Still checking this evidence";
+  ui.fetchWith(async () => ({ok: false, status: 409, json: async () => ({error:"Stale version"})}));
+  await ui.get("download-summary").listeners.click();
+  assert.equal(ui.document.downloads.length, 0);
+  assert.equal(ui.get("note").value, "Still checking this evidence");
+  assert.match(ui.get("message").textContent, /RUN-1 changed elsewhere\. Refresh evidence/);
+  assert.equal(ui.get("download-summary").disabled, true);
+  assert.equal(ui.get("approve").disabled, true);
+  assert.equal(ui.get("refresh").disabled, false);
+  const latest = structuredClone(ui.initial); latest.run.version = 2;
+  ui.respond(url => url === "/api/state" ? {runs:[latest.run],events:[],csrf_token:"test"} : latest);
+  await ui.evaluate("refresh()");
+  assert.equal(ui.get("note").value, "Still checking this evidence");
+  assert.equal(ui.get("download-summary").disabled, false);
+});
+
+test("a stale summary for the departing record does not block a newly loaded experiment", async () => {
+  const ui = harness();
+  let finishSelection, finishDownload;
+  const second = structuredClone(ui.initial); second.run.id="RUN-2";
+  ui.respond(() => new Promise(resolve => {finishSelection=resolve;}));
+  ui.fetchWith(() => new Promise(resolve => {finishDownload=resolve;}));
+  const selection=ui.evaluate('selectRun("RUN-2")');
+  const download=ui.get("download-summary").listeners.click();
+  finishSelection(second); await selection;
+  finishDownload({ok:false,status:409,json:async()=>({error:"Stale version"})}); await download;
+  assert.equal(ui.document.downloads.length, 0);
+  assert.equal(ui.get("download-summary").disabled, false);
+  assert.equal(ui.get("approve").disabled, false);
+  assert.match(ui.get("message").textContent, /RUN-1 changed elsewhere/);
+});
+
+for (const operation of ["summary", "decision"]) {
+  test(`an older pending detail cannot clear a known-stale version after a ${operation} conflict`, async () => {
+    const ui = harness();
+    let finishSelection;
+    ui.respond((url,body) => {
+      if(body){const error=new Error("Stale version"); error.status=409; throw error;}
+      return new Promise(resolve => {finishSelection=resolve;});
+    });
+    ui.fetchWith(async()=>({ok:false,status:409,json:async()=>({error:"Stale version"})}));
+    ui.get("actor").value="Reviewer"; ui.get("note").value="Keep this draft";
+    const selection=ui.evaluate('selectRun("RUN-1")');
+    if(operation === "summary") await ui.get("download-summary").listeners.click();
+    else await ui.evaluate('mutate("approved")');
+    assert.equal(ui.get("approve").disabled,true);
+    finishSelection(ui.initial); await selection;
+    assert.equal(ui.get("approve").disabled,true);
+    assert.equal(ui.get("download-summary").disabled,true);
+    assert.equal(ui.get("note").value,"Keep this draft");
+    const latest=structuredClone(ui.initial); latest.run.version=2;
+    ui.respond(()=>latest);
+    await ui.evaluate('selectRun("RUN-1")');
+    assert.equal(ui.get("approve").disabled,false);
+    assert.equal(ui.get("download-summary").disabled,false);
+  });
+}
+
+for(const failure of ["connection", "body"]) {
+  test(`summary ${failure} failure stays visible and can be retried without losing the note`, async () => {
+    const ui=harness(); ui.get("note").value="Keep my draft";
+    ui.fetchWith(async () => {
+      if(failure === "connection") throw new Error("Disconnected");
+      return {ok:true,text:async()=>{throw new Error("Download interrupted");}};
+    });
+    await ui.get("download-summary").listeners.click();
+    assert.equal(ui.document.downloads.length, 0);
+    assert.equal(ui.get("message").hidden, false);
+    assert.equal(ui.get("message").className, "error");
+    assert.match(ui.get("message").textContent, /Could not download the review summary/);
+    assert.equal(ui.get("note").value,"Keep my draft");
+    assert.equal(ui.get("download-summary").disabled,false);
+  });
+}
+
+test("the workspace audit remains a JSON download with the existing filename", async () => {
+  const ui=harness();
+  const audit={schema_version:2,demo:false,runs:[],events:[]};
+  ui.respond(url=>{assert.equal(url,"/api/export"); return audit;});
+  await ui.get("export").listeners.click();
+  const [download]=ui.document.downloads;
+  assert.equal(download.filename,"reviewops-audit.json");
+  assert.equal(ui.blobs.get(download.href).type,"application/json");
+  assert.deepEqual(JSON.parse(await ui.blobs.get(download.href).text()),audit);
 });

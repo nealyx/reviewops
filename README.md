@@ -63,7 +63,11 @@ use sibling directories under `workspaces/`. Do not put one workspace inside ano
    a complete replacement package. Its status returns to **Needs review**.
 5. Expand **Changes since previous submission** to see added, removed, changed,
    and unchanged files. Open both the previous and current versions in the
-   comparison, then export the audit to inspect the recorded history.
+   comparison.
+6. Choose **Download review summary** for a readable HTML record of this
+   experiment. Open it offline to inspect the evidence checks and the old
+   decision's snapshot reference. **Export audit** downloads the whole workspace
+   as JSON instead.
 
 An empty package may be submitted as an incomplete handoff; it stays blocked.
 Hash verification checks content identity, **not scientific correctness**.
@@ -111,6 +115,31 @@ in the same tab. Refreshing evidence preserves the text; a warning appears if
 the draft began on an earlier snapshot. A successful decision clears the text
 that was submitted, while preserving any new typing. Drafts are held only in
 the tab's memory and disappear on page reload or close.
+
+## Hand off a readable review summary
+
+**Download review summary** saves one experiment's current status, full expected
+and observed hashes, retained snapshot manifests, and recorded actions in an
+HTML file. It opens in a browser without ReviewOps or an internet connection,
+and includes print styles. The download uses the record version shown in the
+page; if that record changed elsewhere, refresh and inspect it before retrying.
+Downloading adds no decision or audit event, and unfinished draft notes stay in
+the tab.
+
+Effective status, recorded review status, and current evidence checks are
+separate. An earlier approval remains attached to its original snapshot when a
+revision awaits review. Modified approved evidence appears **Blocked** while
+the recorded approval remains visible. Historical manifests contain expected
+hashes; their earlier file bytes are **not rechecked** for this summary.
+
+The report has no scripts, external assets, or attached evidence bodies. It
+includes saved names, titles, descriptions, and notes: read it before sharing,
+even when every experiment snapshot is labeled synthetic. Names are labels,
+not authenticated identities. This is a portable record, not a workspace backup
+or proof of scientific validity.
+
+[Saved synthetic summary](docs/assets/reviewops-synthetic-summary.html) ·
+[Download control in the app](docs/assets/reviewops-summary-download.jpg)
 
 ## Back up or move a workspace
 
@@ -163,6 +192,8 @@ runner, or GitHub integration. Nothing is uploaded to a cloud service.
 - Files are checked on reads and before approval. There is no continuous watcher;
   another local process can change a file between verification and a response.
 - Audit exports include metadata, manifests, verification, and history.
+  Per-experiment HTML summaries contain saved metadata, hash observations,
+  snapshot manifests, and recorded actions, without evidence bodies.
   Restorable workspace backups use the separate offline command above.
 
 `runtime/` and `workspaces/` are ignored by Git. For a custom data directory, use a location outside
@@ -184,7 +215,7 @@ node --test tests/test_frontend.js
 
 Node is not needed to run the app.
 
-The frontend regressions exercise evidence previews, retained decision drafts,
+The frontend regressions exercise version-bound summary downloads, evidence previews, retained decision drafts,
 keyboard focus after queue selection and file removal, and recoverable
 submission errors using a small DOM model. They do not
 replace checking keyboard navigation and layout in a browser.
@@ -192,7 +223,7 @@ replace checking keyboard navigation and layout in a browser.
 Tests use temporary directories and synthetic cases. They cover integrity gates,
 retained revisions, approval reset, stale updates, failed-write rollback,
 restart persistence, manifest confinement, HTTP boundaries, previews, audit
-export, and backup/restore with damaged evidence and destination conflicts.
+export, portable summaries, and backup/restore with damaged evidence and destination conflicts.
 The workflow runs on Linux and macOS; its badge reports the latest hosted result.
 Software tests do not establish multiuser scale or scientific validity.
 
@@ -205,6 +236,7 @@ Software tests do not establish multiuser scale or scientific validity.
 |---|---|---|
 | GET | `/api/state` | Queue, events, data indicator, token |
 | GET | `/api/runs/<id>` | Details, current evidence, snapshots, history |
+| GET | `/api/runs/<id>/summary?expected_version=N` | Portable HTML summary of the displayed record version |
 | POST | `/api/submissions` | Create or revise a complete evidence package |
 | POST | `/api/runs/<id>/assign` | `{owner, actor, expected_version}` |
 | POST | `/api/runs/<id>/decision` | `{decision, actor, note, expected_version}` |
@@ -214,6 +246,9 @@ Software tests do not establish multiuser scale or scientific validity.
 
 Decisions are `approved` or `changes_requested`. Effective status may also be
 `needs_review` or `blocked`; `recorded_status` preserves the stored review status.
+The summary route requires one positive integer `expected_version` query
+parameter. It returns 409 if that version is no longer current and never
+silently substitutes a newer record.
 HTTP 400 means invalid or incomplete input, 403 a request-boundary failure,
 404 a missing entry, 408 a request body that stopped arriving, 409 a stale
 version, 413 an oversized request, and 422 a failed approval gate.

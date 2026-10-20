@@ -40,7 +40,8 @@
         <div id="detail-content" hidden>
           <div class="detail-heading"><span class="eyebrow" id="run-id"></span><span id="run-status"></span></div>
           <h2 id="detail-title" tabindex="-1"></h2><p id="run-summary" class="muted summary"></p>
-          <div class="record-meta"><span id="run-kind" class="badge"></span><button id="submit-revision" class="button small-button quiet">Submit revision</button></div>
+          <div class="record-meta"><span id="run-kind" class="badge"></span><div class="record-actions"><button id="submit-revision" class="button small-button quiet">Submit revision</button><button id="download-summary" class="button small-button quiet" aria-describedby="summary-help">Download review summary</button></div></div>
+          <p id="summary-help" class="small muted summary-help">An offline HTML copy of this record’s evidence checks and saved history. Draft notes are excluded. Review its contents before sharing.</p>
           <details id="revision-comparison" class="revision-comparison" hidden>
             <summary><span>Changes since previous submission</span><span id="comparison-summary"></span></summary>
             <div class="comparison-body">
