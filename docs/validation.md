@@ -1,11 +1,13 @@
 # Validation record — October 20, 2026
 
-This record covers the v0.2 submission and retained-evidence workflow. All test
-records and files are synthetic. These are software checks, not pilot results.
+This record covers the v0.2 submission and retained-evidence workflow, plus the
+published EGRA audit import. Browser walkthrough records are synthetic; the
+separate audit fixture comes from public saved outputs. These are software
+checks, not pilot results.
 
 ## Automated checks
 
-The local Python 3.9.6 test suite passes **51 tests**. It exercises:
+The local Python 3.9.6 test suite passes **52 tests**. It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
 - New submissions, exact UTF-8 hashing, and canonical manifest hashes.
@@ -16,6 +18,7 @@ The local Python 3.9.6 test suite passes **51 tests**. It exercises:
 - Persistence after restart and append-only event/snapshot controls.
 - Manifest path confinement, symbolic links, sizes, UTF-8, and JSON boundaries.
 - Host/Origin/token checks, bounded previews, and export labeling.
+- Public audit provenance consistency and import without a fabricated approval.
 
 The GitHub workflow checks Linux/macOS on Python 3.9/3.13. Consult
 [the actual runs](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)
@@ -25,6 +28,21 @@ The first hosted pass exposed a Python-version difference: Python 3.13 accepted
 nesting deep enough to trigger the older interpreter's recursion error.
 The parser now enforces an explicit 32-container limit; the regression checks
 both sides of that boundary rather than relying on interpreter behavior.
+
+## Published audit handoff
+
+The [EGRA walkthrough](public-audit-walkthrough.md) was exercised twice: importing
+the recorded package, and running its replay recipe against a separate clean
+checkout at the pinned public source commit. Both packages imported into fresh
+workspaces with four verified files, an empty owner, version 1, one submission
+event, and **Needs review** status. Reopening, evidence previews, and exports
+preserved that state. Neither path recorded a review decision.
+
+The fixture test checks the report and source-manifest hashes, the ordered
+public file-set identity, stated scope, and initial review state. It does not
+execute the EEG study. The separate source verifier checked 46 CSV hashes,
+46 regression groups, and 774 summary values; this particular walkthrough did
+not request bootstrap recomputation.
 
 ## Browser walkthrough
 
