@@ -28,7 +28,7 @@ have a `content` string, but not both. The HTTP route accepts inline `content`;
 it never resolves browser-supplied paths on your computer.
 
 ```sh
-python3 app.py --empty --data-dir ./runtime/example \
+python3 app.py --empty --data-dir ./workspaces/example \
   --import-manifest examples/manifest.json --actor "Demo operator"
 ```
 
