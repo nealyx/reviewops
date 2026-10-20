@@ -50,6 +50,19 @@ snapshot; refreshing loads the newer package. A preview error is shown rather
 than silently substituting current evidence. Assignment changes preserve an
 unfinished decision note, including when the reviewer is cleared.
 
+Decision drafts are stored separately for each experiment in tab memory.
+Selection captures the departing note only when the requested record finishes
+loading, preserving typing during the request. Refreshing to a different
+evidence snapshot keeps the draft and displays its older-evidence warning.
+A successful decision clears only the submitted text, not new text typed
+while the write was pending. Reloading or closing the page clears drafts.
+
+The comparison view selects the immediately preceding submission by its record
+version, rather than treating assignment or decision versions as evidence
+changes. It compares the recorded filenames and expected hashes; previews
+remain bound to both selected snapshot IDs and separately verify stored bytes.
+Metadata comparisons use values at submission, not later reviewer assignments.
+
 Each preview hashes and retains its text prefix from one opened file stream.
 Replacing a file between separate hash and preview reads therefore cannot
 mislabel replacement text as verified. The full file is checked up to the 8 MiB
@@ -82,6 +95,13 @@ The server listens on IPv4 loopback. Host/Origin validation and a random
 process-local write token help prevent writes from unrelated websites. The
 frontend uses text nodes for submitted content, a restrictive content security
 policy, and bounded JSON previews. There is no remote API call.
+
+The serialized request handler gives accepted sockets a five-second inactivity
+timeout before reading headers. It also rejects an incomplete or stalled body
+before parsing or submitting any data. This bounds an idle connection's hold on
+the server without introducing concurrent access to its SQLite connection.
+Continuously arriving data can extend the request; this is not a total deadline
+or protection against other processes controlled by the local user.
 
 These controls do not protect against local processes with the same filesystem
 permissions, authenticate researchers, or make this server suitable for network

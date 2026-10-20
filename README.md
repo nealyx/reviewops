@@ -58,8 +58,9 @@ python3 app.py --empty --data-dir ./runtime/my-workspace --port 8788
    synthetic if it is a demonstration.
 4. Approve it, then **Submit revision** with changed evidence. Every revision is
    a complete replacement package. Its status returns to **Needs review**.
-5. Open the earlier snapshot: its files and decision remain readable. Export
-   the audit to inspect the recorded history outside the app.
+5. Expand **Changes since previous submission** to see added, removed, changed,
+   and unchanged files. Open the previous and current versions side by side in
+   the comparison, then export the audit to inspect the recorded history.
 
 An empty package may be submitted as an incomplete handoff; it stays blocked.
 Hash verification checks content identity, **not scientific correctness**.
@@ -94,6 +95,20 @@ so two open tabs cannot silently overwrite one another's actions.
 Each detail, queue, and audit export also reads a consistent database snapshot
 when a separate CLI import commits a revision during the request.
 
+The revision comparison uses the current and immediately preceding evidence
+submissions, even when assignments and decisions occurred between them. It
+compares filenames and expected hashes, and shows changes to submitted metadata.
+Renames appear as a removal and an addition. It is a file-level comparison, not
+a line-by-line text diff or a scientific assessment. Previewing either version
+checks the actual stored bytes, so unchanged submitted hashes cannot hide a
+later file-integrity failure.
+
+Unfinished decision notes stay with each experiment while you switch records
+in the same tab. Refreshing evidence preserves the text; a warning appears if
+the draft began on an earlier snapshot. A successful decision clears the text
+that was submitted, while preserving any new typing. Drafts are held only in
+the tab's memory and disappear on page reload or close.
+
 ## Data and operating limits
 
 This is a **local, single-user tool**. Names are self-reported labels, not
@@ -109,6 +124,9 @@ runner, or GitHub integration. Nothing is uploaded to a cloud service.
 - The server binds to `127.0.0.1`, checks Host/Origin, and requires a local
   request token for writes. Other processes running as your OS user remain
   outside that boundary.
+- Idle connections expire after five seconds without socket activity. An
+  unfinished request body is rejected without changing the workspace. This is
+  an inactivity timeout, not a deadline for continuously arriving data.
 - SQLite triggers reject ordinary updates/deletes to audit events and snapshot
   records. The database owner can bypass those controls; this is not an
   independently witnessed or tamper-proof ledger.
@@ -166,8 +184,9 @@ Software tests do not establish multiuser scale or scientific validity.
 
 Decisions are `approved` or `changes_requested`. Effective status may also be
 `needs_review` or `blocked`; `recorded_status` preserves the stored review status.
-HTTP 400 means invalid input, 403 a request-boundary failure, 404 a missing entry,
-409 a stale version, 413 an oversized request, and 422 a failed approval gate.
+HTTP 400 means invalid or incomplete input, 403 a request-boundary failure,
+404 a missing entry, 408 a request body that stopped arriving, 409 a stale
+version, 413 an oversized request, and 422 a failed approval gate.
 
 The next milestone is an observed researcher handoff using permitted examples.
 The [pilot guide](PILOT.md) records task success, time, confusion, and changes

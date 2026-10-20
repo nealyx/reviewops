@@ -41,6 +41,15 @@
           <div class="detail-heading"><span class="eyebrow" id="run-id"></span><span id="run-status"></span></div>
           <h2 id="detail-title" tabindex="-1"></h2><p id="run-summary" class="muted summary"></p>
           <div class="record-meta"><span id="run-kind" class="badge"></span><button id="submit-revision" class="button small-button quiet">Submit revision</button></div>
+          <details id="revision-comparison" class="revision-comparison" hidden>
+            <summary><span>Changes since previous submission</span><span id="comparison-summary"></span></summary>
+            <div class="comparison-body">
+              <p id="comparison-reference" class="small"></p>
+              <p class="small muted">Compares submitted filenames and expected hashes. Open a file to check its stored contents and integrity. A renamed file appears as a removal and an addition.</p>
+              <ul id="comparison-metadata" class="comparison-metadata"></ul>
+              <div id="comparison-files"></div>
+            </div>
+          </details>
           <div class="section-heading"><h3>Current evidence</h3><span id="evidence-summary"></span></div>
           <p class="small muted" id="current-snapshot"></p>
           <div id="evidence-list"></div>
@@ -53,6 +62,8 @@
             </div>
             <div class="assign-row"><span class="small muted">Names are labels; this local workspace does not authenticate identities.</span><button id="assign" class="button small-button quiet">Save assignee</button></div>
             <label>Decision note<textarea id="note" rows="3" maxlength="4000" placeholder="What did you check? What needs to happen next?"></textarea></label>
+            <p class="small muted review-draft-hint">Draft notes stay with each experiment in this tab. Reloading the page clears them.</p>
+            <p id="review-draft-warning" class="draft-warning" role="status" hidden>This draft started on an earlier evidence snapshot. Check the new files before reusing it.</p>
             <p id="approval-reason" class="small muted"></p>
             <div class="decision-actions"><button id="changes" class="button quiet">Request changes</button><button id="approve" class="button primary">Approve review</button></div>
           </div>

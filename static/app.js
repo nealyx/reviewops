@@ -4,6 +4,7 @@ const limits = {files:20, each:256 * 1024, total:1024 * 1024};
 let state = {runs:[],events:[]}, selected = null, detail = null, busy = false, requestId = 0, reviewStale = false;
 let draft = null;
 const drafts = new Map();
+const reviewDrafts = new Map();
 const fields = {id:"submission-id",title:"submission-run-title",summary:"submission-summary",owner:"submission-owner",actor:"submission-actor",note:"submission-note"};
 function el(tag, cls, value) {
   const n = document.createElement(tag);
@@ -85,7 +86,7 @@ function renderQueue(restoreFocus=true) {
     const count=run.evidence_count||0;
     bottom.append(owner,el("span","",`${count} ${count===1?"file":"files"} · ${run.is_demo?"Demo":"Submitted"}`));
     button.append(top,el("div","run-title",run.title),bottom);
-    button.addEventListener("click",()=>{if(!busy)return selectRun(run.id,false,button);}); list.append(button);
+    button.addEventListener("click",()=>{if(!busy)return selectRun(run.id,button);}); list.append(button);
   }
   // A response may arrive after the user has advanced to another queue item.
   if(focusedId) {
@@ -110,6 +111,51 @@ function evidencePreview(path, label="Read evidence") {
 }
 function hashRow(label, hash) {
   const row=el("div","hash-row"); row.append(el("span","",label),el("code","",hash||"File unavailable")); return row;
+}
+function compareEvidence(previous, current) {
+  const before=new Map((previous.evidence||[]).map((file,index)=>[file.name,{...file,index}]));
+  const after=new Map((current.evidence||[]).map((file,index)=>[file.name,{...file,index}]));
+  return [...new Set([...before.keys(),...after.keys()])].sort().map(name=>{
+    const oldFile=before.get(name), newFile=after.get(name);
+    const change=!oldFile?"added":!newFile?"removed":oldFile.sha256===newFile.sha256?"unchanged":"changed";
+    return {name,change,before:oldFile,after:newFile};
+  });
+}
+function renderComparison() {
+  const section=$("revision-comparison"), list=$("comparison-files");
+  list.replaceChildren(); $("comparison-metadata").replaceChildren();
+  const snapshots=detail.snapshots||[];
+  const current=snapshots.find(snapshot=>snapshot.id===detail.run.snapshot_id);
+  const previous=current&&snapshots.filter(snapshot=>snapshot.run_version<current.run_version)
+    .sort((a,b)=>b.run_version-a.run_version)[0];
+  section.hidden=!previous;
+  if(!previous)return;
+  const before=previous.manifest||{}, after=current.manifest||{};
+  const changes=compareEvidence(before,after), counts={added:0,changed:0,removed:0,unchanged:0};
+  for(const file of changes)counts[file.change]++;
+  $("comparison-summary").textContent=`${counts.changed} changed · ${counts.added} added · ${counts.removed} removed · ${counts.unchanged} unchanged`;
+  const reference=$("comparison-reference");
+  reference.textContent=`Submission at record version ${previous.run_version} → ${current.run_version}`;
+  reference.title=`${previous.id} → ${current.id}`;
+  for(const [key,label] of [["title","Title"],["summary","Summary"],["owner","Reviewer at submission"],["is_demo","Evidence label"]]) {
+    if(before[key]===after[key])continue;
+    const values=key==="is_demo"
+      ? [before.is_demo?"Synthetic example":"User submission",after.is_demo?"Synthetic example":"User submission"]
+      : [before[key]||"Not set",after[key]||"Not set"];
+    const item=el("li","metadata-change");
+    item.append(el("strong","",`${label}: `),el("span","",values[0]),el("span","change-arrow"," → "),el("span","",values[1]));
+    $("comparison-metadata").append(item);
+  }
+  if(!changes.length)list.append(el("p","small muted","Both submissions contain no evidence files."));
+  for(const file of changes) {
+    const item=el("div","comparison-file"), heading=el("div","comparison-file-heading");
+    heading.append(el("strong","evidence-name",file.name),el("span",`change-label ${file.change}`,file.change));
+    item.append(heading);
+    const path=(snapshot,index)=>`/api/runs/${encodeURIComponent(detail.run.id)}/snapshots/${encodeURIComponent(snapshot.id)}/evidence/${index}`;
+    if(file.before&&file.change!=="unchanged")item.append(evidencePreview(path(previous,file.before.index),"Read previous file"));
+    if(file.after)item.append(evidencePreview(path(current,file.after.index),"Read current file"));
+    list.append(item);
+  }
 }
 function renderSnapshots() {
   const list=$("snapshot-list"); list.replaceChildren();
@@ -162,7 +208,7 @@ function renderDetail() {
   }
   if(!detail.evidence?.length) $("evidence-list").append(el("p","empty","No evidence has been attached. Submit a revision to add files."));
   $("approval-reason").textContent=run.evidence_status==="verified"?"Record what you checked before approving.":"Approval is blocked until every required evidence file is present and matches its recorded hash.";
-  renderSnapshots(); $("history").replaceChildren();
+  renderComparison(); renderSnapshots(); $("history").replaceChildren();
   if(!detail.events?.length) $("history").append(el("li","muted","No actions recorded yet."));
   for(const event of detail.events||[]) {
     const item=el("li","");
@@ -171,44 +217,69 @@ function renderDetail() {
     if(event.snapshot_id) {const reference=el("div","event-snapshot",`Evidence snapshot ${shortId(event.snapshot_id)}`); reference.title=event.snapshot_id; item.append(reference);}
     if(event.note)item.append(el("div","event-note",event.note)); $("history").append(item);
   }
-  syncControls();
+  renderDraftWarning(); syncControls();
 }
-async function selectRun(id, preserveNote=false, activatedButton=null) {
+function rememberReviewDraft() {
+  if(!selected||!detail)return;
+  const note=$("note").value;
+  if(!note){reviewDrafts.delete(selected);return;}
+  const prior=reviewDrafts.get(selected);
+  reviewDrafts.set(selected,{note,snapshotId:prior?prior.snapshotId:detail.run.snapshot_id});
+}
+function renderDraftWarning() {
+  const saved=reviewDrafts.get(selected);
+  $("review-draft-warning").hidden=!(saved&&saved.note&&detail&&saved.snapshotId!==detail.run.snapshot_id);
+}
+function restoreReviewDraft() {
+  $("note").value=reviewDrafts.get(selected)?.note||"";
+  renderDraftWarning();
+}
+async function selectRun(id, activatedButton=null) {
   if(selected!==id)message(""); const ticket=++requestId;
   try {
     const result=await api(`/api/runs/${encodeURIComponent(id)}`); if(ticket!==requestId)return;
     // Rebuilding the queue removes its focused button. Move an explicit
     // activation into the detail, but never interrupt focus moved during loading.
     const focusDetail=activatedButton&&document.activeElement===activatedButton;
-    selected=id; detail=result; reviewStale=false; if(!preserveNote)$("note").value=""; renderQueue(!focusDetail); renderDetail();
+    // Capture at response time as the reviewer may keep typing while it loads.
+    rememberReviewDraft();
+    selected=id; detail=result; reviewStale=false; restoreReviewDraft(); renderQueue(!focusDetail); renderDetail();
     if(focusDetail)$("detail-title").focus();
     return true;
   } catch(e) {message(e.message,true);return false;}
 }
-async function refresh(showMessage=false, preserveNote=false) {
+async function refresh(showMessage=false) {
   state=await api("/api/state"); renderQueue();
   if(selected&&state.runs.some(r=>r.id===selected)) {
-    if(await selectRun(selected,preserveNote)===false)throw new Error("The selected experiment could not be refreshed.");
+    if(await selectRun(selected)===false)throw new Error("The selected experiment could not be refreshed.");
   } else if(state.runs.length) {
     if(await selectRun(state.runs[0].id)===false)throw new Error("The selected experiment could not be loaded.");
   }
-  else {selected=null; detail=null; $("detail-content").hidden=true; $("detail-empty").hidden=false;}
+  else {rememberReviewDraft();selected=null; detail=null;restoreReviewDraft(); $("detail-content").hidden=true; $("detail-empty").hidden=false;}
   syncControls(); if(showMessage)message("Evidence refreshed against the recorded hashes. Any decision note is kept.");
 }
 async function mutate(action) {
   if(busy||reviewStale||!detail)return;
+  const runId=selected, originalNote=$("note").value;
   const actor=$("actor").value.trim(), note=$("note").value.trim(), owner=$("owner").value.trim();
   if(!actor){message("Enter your name to record this action.",true);$("actor").focus();return;}
   if(action!=="assign"&&!note){message("Add a decision note explaining what you checked.",true);$("note").focus();return;}
-  setBusy(true);
+  setBusy(true); let saved=false;
   try {
     const body={actor,expected_version:detail.run.version};
     if(action==="assign")body.owner=owner; else {body.decision=action;body.note=note;}
-    await api(`/api/runs/${encodeURIComponent(selected)}/${action==="assign"?"assign":"decision"}`,body);
-    await refresh(false,action==="assign");
+    await api(`/api/runs/${encodeURIComponent(runId)}/${action==="assign"?"assign":"decision"}`,body);
+    saved=true;
+    // Clear only the note that was actually recorded, retaining any new typing.
+    if(action!=="assign") {
+      if(reviewDrafts.get(runId)?.note===originalNote)reviewDrafts.delete(runId);
+      if(selected===runId&&$("note").value===originalNote)$("note").value="";
+    }
+    await refresh();
     message(action==="assign"?"Reviewer assignment saved.":action==="approved"?"Review approved and recorded in the audit history.":"Changes requested and recorded in the audit history.");
   } catch(e) {
-    if(e.status===409){reviewStale=true;message("This record changed elsewhere. Refresh evidence and inspect the latest record before trying again. Your note is kept.",true);}
+    if(saved){reviewStale=true;message("Your action was saved, but the workspace could not refresh. Use Refresh evidence before recording another action.",true);}
+    else if(e.status===409){reviewStale=true;message("This record changed elsewhere. Refresh evidence and inspect the latest record before trying again. Your note is kept.",true);}
     else message(e.message,true);
   } finally {setBusy(false);}
 }
@@ -335,7 +406,8 @@ async function submitExperiment(event) {
   try {
     const result=await api("/api/submissions",body);
     drafts.delete(current.key);$("submission-dialog").close();draft=null;
-    selected=result.run?.id||body.id;detail=result.run?result:null;
+    rememberReviewDraft();
+    selected=result.run?.id||body.id;detail=result.run?result:null;restoreReviewDraft();
     $("search").value="";$("status-filter").value="";
     await refresh();
     message(current.mode==="revision"?"Revision submitted. The new evidence is ready for review, prior approval has reset, and earlier snapshots are retained.":"Experiment added. Its first evidence snapshot is ready for review.");
@@ -349,7 +421,8 @@ async function submitExperiment(event) {
 }
 $("search").addEventListener("input",()=>renderQueue());
 $("status-filter").addEventListener("change",()=>renderQueue());
-$("refresh").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await refresh(true,true);}catch(e){message(e.message,true);}finally{setBusy(false);}});
+$("refresh").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await refresh(true);}catch(e){message(e.message,true);}finally{setBusy(false);}});
+$("note").addEventListener("input",()=>{rememberReviewDraft();renderDraftWarning();});
 $("assign").addEventListener("click",()=>mutate("assign"));
 $("approve").addEventListener("click",()=>mutate("approved"));
 $("changes").addEventListener("click",()=>mutate("changes_requested"));
