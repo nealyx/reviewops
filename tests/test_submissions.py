@@ -436,6 +436,7 @@ class ManifestTests(unittest.TestCase):
         cases = [
             b'{"id":"FIRST","id":"SECOND"}',
             b'{"unused":NaN}', b'{"unused":Infinity}', b'{"unused":-Infinity}',
+            b'{"unused":1e400}',
             b"\xff", b"[" * 2000 + b"]" * 2000,
         ]
         for content in cases:
@@ -444,6 +445,15 @@ class ManifestTests(unittest.TestCase):
             self.path.write_bytes(content)
             with self.assertRaises(SubmissionError):
                 read_manifest(self.path)
+
+    def test_json_depth_limit_is_explicit_and_ignores_brackets_in_text(self):
+        accepted = "[" * 32 + "0" + "]" * 32
+        self.assertIsInstance(parse_json(accepted), list)
+        with self.assertRaisesRegex(SubmissionError, "32 levels"):
+            parse_json("[" * 33 + "0" + "]" * 33)
+        text_with_brackets = "[" * 2000
+        self.assertEqual(parse_json(json.dumps({"content": text_with_brackets})),
+                         {"content": text_with_brackets})
 
     def test_manifest_enforces_total_package_and_manifest_size_limits(self):
         (self.root / "large.txt").write_bytes(b"a" * MAX_FILE_BYTES)

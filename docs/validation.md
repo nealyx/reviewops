@@ -5,7 +5,7 @@ records and files are synthetic. These are software checks, not pilot results.
 
 ## Automated checks
 
-The local Python 3.9.6 test suite passes **50 tests**. It exercises:
+The local Python 3.9.6 test suite passes **51 tests**. It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
 - New submissions, exact UTF-8 hashing, and canonical manifest hashes.
@@ -20,6 +20,11 @@ The local Python 3.9.6 test suite passes **50 tests**. It exercises:
 The GitHub workflow checks Linux/macOS on Python 3.9/3.13. Consult
 [the actual runs](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)
 for hosted results rather than assuming a configured job has passed.
+
+The first hosted pass exposed a Python-version difference: Python 3.13 accepted
+nesting deep enough to trigger the older interpreter's recursion error.
+The parser now enforces an explicit 32-container limit; the regression checks
+both sides of that boundary rather than relying on interpreter behavior.
 
 ## Browser walkthrough
 
