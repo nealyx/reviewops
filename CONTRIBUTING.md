@@ -11,32 +11,35 @@ describes the next validation step.
 |---|---|
 | [`app.py`](app.py) | Loopback HTTP server, SQLite records, snapshots, hash checks, decisions, exports, and startup |
 | [`submissions.py`](submissions.py) | Submission validation and explicitly selected local manifest/file imports |
+| [`workspace_archive.py`](workspace_archive.py) | Offline preparation, bounded backups, inspection, and restore into new directories |
 | [`static/`](static/) | Browser interface; plain HTML, CSS, and JavaScript |
 | [`demo/`](demo/) | Synthetic startup fixtures |
 | [`examples/`](examples/) | Synthetic manifest and evidence for an explicitly selected import |
 | [`tests/`](tests/) | Store/HTTP behavior, migration, input boundaries, and frontend regressions |
 
-Read the [design and boundaries](docs/design.md) and
-[manifest format](docs/manifests.md) when changing those paths.
+Read the [design and boundaries](docs/design.md),
+[manifest format](docs/manifests.md), and [workspace guide](docs/workspaces.md)
+when changing those paths.
 
 ## Work in an isolated local workspace
 
 Use Python 3.9 or later. From the repository root, choose a new data directory:
 
 ```sh
-python3 app.py --empty --data-dir runtime/contributor \
+python3 app.py --empty --data-dir workspaces/contributor \
   --import-manifest examples/manifest.json
-python3 app.py --data-dir runtime/contributor --port 8791
+python3 app.py --data-dir workspaces/contributor --port 8791
 ```
 
 Open `http://127.0.0.1:8791/`; stop the server with Ctrl+C. This imports the
 synthetic example into a separate workspace. `--empty` only skips automatic
 seeding for a new directory; it does not reset an existing database. Use a
-different directory name if `runtime/contributor` already contains work.
+different directory name if `workspaces/contributor` already contains work.
 
-`runtime/` is ignored by Git. Keep development experiments separate from any
+`runtime/` and `workspaces/` are ignored by Git. Keep development experiments separate from any
 workspace used for actual reviews. Existing databases and retained evidence are
-not disposable test fixtures.
+not disposable test fixtures. Do not create one workspace inside another;
+the backup command refuses unrelated subdirectories.
 
 ## Run the checks
 
@@ -60,6 +63,12 @@ They complement browser checks; they do not verify layout or every browser
 interaction. For UI changes, also exercise the affected flow in your isolated
 workspace. The [CI workflow](.github/workflows/checks.yml) runs the automated
 checks on Linux and macOS.
+
+Backup changes also need an actual command-line round trip in a disposable
+workspace. The CI workflow imports the checked-in example, prepares and exports
+it, inspects the archive, and restores it to a fresh directory. The archive tests
+add decisions, revisions, missing and modified files, malformed packages, and
+destination races. Existing user workspaces must never be used as test fixtures.
 
 ## Write a regression that protects a decision
 

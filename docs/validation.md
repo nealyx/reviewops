@@ -1,13 +1,14 @@
 # Validation record — October 20, 2026
 
-This record covers the v0.2 submission and retained-evidence workflow.
+This record covers submissions, retained evidence, revision comparisons,
+review drafts, and offline workspace backups.
 The bundled examples and browser walkthrough records are synthetic.
 These are software checks, not pilot results.
 
 ## Automated checks
 
-The current local Python 3.9.6 test suite passes **59 tests**, rerun on
-October 20, 2026 after removing a separate audit example and its fixture test.
+The current local Python 3.9.6 test suite passes **82 tests**, run on
+October 20, 2026.
 It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
@@ -21,15 +22,22 @@ It exercises:
 - Host/Origin/token checks, bounded previews, and export labeling.
 - Consistent database reads while a second CLI connection commits a revision.
 - Preview text and integrity labels derived from the same bounded file read.
+- Inactive sockets, unfinished request bodies, and successful requests afterward.
+- Offline backup round trips preserving decisions, revisions, and damaged evidence.
+- Bounded archive validation and failure without overwriting a destination.
 
-Fifteen dependency-free Node regressions also pass in that rerun. The first four demonstrated
+Twenty-eight dependency-free Node regressions also pass. The first four demonstrated
 the earlier preview and draft defects: previews stay bound to the displayed
 evidence snapshot, preview failure never falls back to newer bytes, and assigning
 or clearing a reviewer preserves an unfinished decision note. The additional
 checks cover keyboard position during queue selection, delayed responses and
 file removal, plus visible submission errors with draft/file retention. These
 tests use a small DOM model; layout and native focus behavior require browser
-checks too.
+checks too. Additional regressions cover consecutive submission comparisons,
+metadata changes, snapshot-bound preview links, per-experiment drafts, and
+typing or navigation while a request is pending. A regression demonstrated a
+race that restored a submitted draft after navigation; the fix clears the
+submitted record's saved draft even when another record is currently selected.
 
 Three additional database regressions failed before the read-consistency fix:
 a detail could pair old metadata with a new filename, a queue could combine
@@ -54,6 +62,18 @@ The first hosted pass exposed a Python-version difference: Python 3.13 accepted
 nesting deep enough to trigger the older interpreter's recursion error.
 The parser now enforces an explicit 32-container limit; the regression checks
 both sides of that boundary rather than relying on interpreter behavior.
+
+Eighteen backup tests exercise full history and byte preservation, standalone
+SQLite shared memory after preparation, active-connection refusal, unsafe paths
+and file types, duplicate and colliding names, size bounds, malformed schema,
+foreign-key errors, source changes, ZIP64 member metadata, and a destination
+created just before publication. These use temporary workspaces. A separate
+command-line smoke check imported the documented example, verified refusal
+while the app was running, then prepared, exported, inspected, restored, and
+reopened it. The restored database/evidence bytes and audit records matched,
+and a second restore preserved the existing destination.
+Archive consistency checks do not
+authenticate the archive's author or validate scientific results.
 
 ## Browser walkthrough
 
@@ -95,6 +115,17 @@ whitespace-only title from the bottom of the dialog focused the fully visible
 error message, keeping the draft and both selected files. The invalid record was
 not saved. Delayed-response and decoding focus preservation are additionally
 covered by the deterministic Node checks.
+
+The revision-comparison walkthrough used an isolated synthetic experiment.
+The first revision showed one added, removed, changed, and unchanged file;
+previous/current previews displayed their respective bytes. Switching between
+two experiments retained separate draft notes. An external revision followed
+by refresh preserved the note, warned that it began on older evidence, and
+compared the two latest submissions. The expanded comparison had no horizontal
+page overflow at a 390-pixel viewport. Previous and current previews remained
+distinct in the final desktop pass; no browser warnings or errors were observed.
+
+[Captured revision comparison](assets/reviewops-revision-comparison.jpg).
 
 ## Limits
 

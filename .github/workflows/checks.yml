@@ -24,7 +24,13 @@ jobs:
       - name: Check state transitions and request boundaries
         run: python -m unittest discover -s tests -v
       - name: Import the documented example
-        run: python app.py --empty --data-dir runtime/ci --import-manifest examples/manifest.json
+        run: python app.py --empty --data-dir workspaces/ci --import-manifest examples/manifest.json
+      - name: Back up, inspect, and restore the example
+        run: |
+          python workspace_archive.py prepare --data-dir workspaces/ci
+          python workspace_archive.py export --data-dir workspaces/ci --output workspaces/ci-backup.zip
+          python workspace_archive.py inspect workspaces/ci-backup.zip
+          python workspace_archive.py restore workspaces/ci-backup.zip --destination workspaces/ci-restored
       - name: Check frontend syntax
         run: node --check static/app.js
       - name: Check evidence preview and review draft behavior

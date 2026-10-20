@@ -19,6 +19,7 @@ with AI-assisted engineering.
 No adoption, time savings, or scientific outcome has been measured.
 
 [Manifest format](docs/manifests.md) · [Design and boundaries](docs/design.md) ·
+[Workspace backups](docs/workspaces.md) ·
 [Validation and preview](docs/validation.md) · [Researcher pilot](PILOT.md) ·
 [Contributing](CONTRIBUTING.md) · [Download a release](https://github.com/nealyx/reviewops/releases)
 
@@ -44,10 +45,12 @@ and never restores original files over your edits.
 For a separate workspace without demonstration records:
 
 ```sh
-python3 app.py --empty --data-dir ./runtime/my-workspace --port 8788
+python3 app.py --empty --data-dir ./workspaces/my-workspace --port 8788
 ```
 
 `--empty` affects only an uninitialized directory. It never clears existing records.
+Keep workspaces separate: the default is `runtime/`, while additional examples
+use sibling directories under `workspaces/`. Do not put one workspace inside another.
 
 ## A five-minute walkthrough
 
@@ -59,8 +62,8 @@ python3 app.py --empty --data-dir ./runtime/my-workspace --port 8788
 4. Approve it, then **Submit revision** with changed evidence. Every revision is
    a complete replacement package. Its status returns to **Needs review**.
 5. Expand **Changes since previous submission** to see added, removed, changed,
-   and unchanged files. Open the previous and current versions side by side in
-   the comparison, then export the audit to inspect the recorded history.
+   and unchanged files. Open both the previous and current versions in the
+   comparison, then export the audit to inspect the recorded history.
 
 An empty package may be submitted as an incomplete handoff; it stays blocked.
 Hash verification checks content identity, **not scientific correctness**.
@@ -69,9 +72,9 @@ A reviewer still needs to assess the methods, results, and limitations.
 You can also import the checked-in synthetic example:
 
 ```sh
-python3 app.py --empty --data-dir ./runtime/import-demo \
+python3 app.py --empty --data-dir ./workspaces/import-demo \
   --import-manifest examples/manifest.json
-python3 app.py --data-dir ./runtime/import-demo --port 8788
+python3 app.py --data-dir ./workspaces/import-demo --port 8788
 ```
 
 The importer copies only files listed by the selected manifest. Later edits to
@@ -109,6 +112,33 @@ the draft began on an earlier snapshot. A successful decision clears the text
 that was submitted, while preserving any new typing. Drafts are held only in
 the tab's memory and disappear on page reload or close.
 
+## Back up or move a workspace
+
+Stop the server and all import commands, then prepare and export the workspace.
+Keep them stopped until export finishes. These commands use the separate workspace
+created above; use `--data-dir runtime` to back up the default demo instead:
+
+```sh
+python3 workspace_archive.py prepare --data-dir workspaces/my-workspace
+python3 workspace_archive.py export \
+  --data-dir workspaces/my-workspace --output ../workspace-backup.zip
+python3 workspace_archive.py inspect ../workspace-backup.zip
+python3 workspace_archive.py restore ../workspace-backup.zip \
+  --destination workspaces/restored-workspace
+python3 app.py --data-dir workspaces/restored-workspace --port 8788
+```
+
+The ZIP includes the database, review history, and evidence files. Inspection
+checks its inventory, sizes, hashes, and database consistency. Restore requires
+a new destination and refuses to overwrite existing work. Missing or modified
+evidence remains missing or modified; restoring does not grant a new approval.
+
+`prepare` checkpoints SQLite's pending storage and changes journal mode without
+editing review records. Never delete SQLite sidecars manually. The
+[workspace guide](docs/workspaces.md) explains the offline requirement, archive
+limits, and privacy considerations. Audit JSON exports contain no file bodies
+and cannot replace this backup.
+
 ## Data and operating limits
 
 This is a **local, single-user tool**. Names are self-reported labels, not
@@ -132,11 +162,10 @@ runner, or GitHub integration. Nothing is uploaded to a cloud service.
   independently witnessed or tamper-proof ledger.
 - Files are checked on reads and before approval. There is no continuous watcher;
   another local process can change a file between verification and a response.
-- Exports include metadata, manifests, verification, and history. They **do not**
-  include evidence file bodies or constitute a restorable backup. Stop the
-  server and copy the complete runtime directory to back up a workspace.
+- Audit exports include metadata, manifests, verification, and history.
+  Restorable workspace backups use the separate offline command above.
 
-`runtime/` is ignored by Git. For a custom data directory, use a location outside
+`runtime/` and `workspaces/` are ignored by Git. For a custom data directory, use a location outside
 the checkout or add your own ignore rule. Review exports before sharing
 user-submitted records.
 
@@ -162,7 +191,8 @@ replace checking keyboard navigation and layout in a browser.
 
 Tests use temporary directories and synthetic cases. They cover integrity gates,
 retained revisions, approval reset, stale updates, failed-write rollback,
-restart persistence, manifest confinement, HTTP boundaries, previews, and export.
+restart persistence, manifest confinement, HTTP boundaries, previews, audit
+export, and backup/restore with damaged evidence and destination conflicts.
 The workflow runs on Linux and macOS; its badge reports the latest hosted result.
 Software tests do not establish multiuser scale or scientific validity.
 
