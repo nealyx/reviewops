@@ -37,6 +37,12 @@ Writes supply the version the operator observed. An immediate SQLite transaction
 checks that version and commits the state and event together. Stale writes get
 HTTP 409.
 
+Evidence previews use the snapshot displayed in the page. If another tab or
+import creates a revision, an already-open page still reads its original
+snapshot; refreshing loads the newer package. A preview error is shown rather
+than silently substituting current evidence. Assignment changes preserve an
+unfinished decision note, including when the reviewer is cleared.
+
 Submissions write files into a fresh directory during the transaction. Handled
 failures remove that new directory and roll back the database. A process or power
 failure can leave an unreferenced directory; there is no automatic cleanup claim.

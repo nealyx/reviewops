@@ -134,7 +134,14 @@ function renderDetail() {
   for(const [index,file] of (detail.evidence||[]).entries()) {
     const item=el("div","evidence-item"), head=el("header","");
     head.append(el("span","evidence-name",file.name),badge(file.status)); item.append(head,hashRow("Expected",file.expected_sha256),hashRow("Current",file.actual_sha256));
-    if(file.actual_sha256) item.append(evidencePreview(`/api/runs/${encodeURIComponent(run.id)}/evidence/${index}`));
+    if(file.actual_sha256) {
+      // A later revision must not replace the content beneath this displayed
+      // filename/hash while the reviewer is still inspecting the older detail.
+      const path=run.snapshot_id
+        ? `/api/runs/${encodeURIComponent(run.id)}/snapshots/${encodeURIComponent(run.snapshot_id)}/evidence/${index}`
+        : `/api/runs/${encodeURIComponent(run.id)}/evidence/${index}`;
+      item.append(evidencePreview(path));
+    }
     $("evidence-list").append(item);
   }
   if(!detail.evidence?.length) $("evidence-list").append(el("p","empty","No evidence has been attached. Submit a revision to add files."));
@@ -171,13 +178,13 @@ async function mutate(action) {
   if(busy||reviewStale||!detail)return;
   const actor=$("actor").value.trim(), note=$("note").value.trim(), owner=$("owner").value.trim();
   if(!actor){message("Enter your name to record this action.",true);$("actor").focus();return;}
-  if(action==="assign"&&!owner){message("Enter a reviewer name.",true);$("owner").focus();return;}
   if(action!=="assign"&&!note){message("Add a decision note explaining what you checked.",true);$("note").focus();return;}
   setBusy(true);
   try {
     const body={actor,expected_version:detail.run.version};
     if(action==="assign")body.owner=owner; else {body.decision=action;body.note=note;}
-    await api(`/api/runs/${encodeURIComponent(selected)}/${action==="assign"?"assign":"decision"}`,body); await refresh();
+    await api(`/api/runs/${encodeURIComponent(selected)}/${action==="assign"?"assign":"decision"}`,body);
+    await refresh(false,action==="assign");
     message(action==="assign"?"Reviewer assignment saved.":action==="approved"?"Review approved and recorded in the audit history.":"Changes requested and recorded in the audit history.");
   } catch(e) {
     if(e.status===409){reviewStale=true;message("This record changed elsewhere. Refresh evidence and inspect the latest record before trying again. Your note is kept.",true);}

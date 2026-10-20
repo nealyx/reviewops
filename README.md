@@ -143,6 +143,15 @@ user-submitted records.
 python3 -m unittest discover -s tests -v
 ```
 
+For frontend development, Node.js 22 or later can also run the small behavior
+regressions without installing packages:
+
+```sh
+node --test tests/test_frontend.js
+```
+
+Node is not needed to run the app.
+
 Tests use temporary directories, synthetic cases, and the explicitly labeled
 published-audit package. They cover integrity gates,
 retained revisions, approval reset, stale updates, failed-write rollback,
