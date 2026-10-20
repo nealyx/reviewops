@@ -39,7 +39,7 @@
         <div id="detail-empty" class="empty">Select an experiment to inspect its evidence.</div>
         <div id="detail-content" hidden>
           <div class="detail-heading"><span class="eyebrow" id="run-id"></span><span id="run-status"></span></div>
-          <h2 id="detail-title"></h2><p id="run-summary" class="muted summary"></p>
+          <h2 id="detail-title" tabindex="-1"></h2><p id="run-summary" class="muted summary"></p>
           <div class="record-meta"><span id="run-kind" class="badge"></span><button id="submit-revision" class="button small-button quiet">Submit revision</button></div>
           <div class="section-heading"><h3>Current evidence</h3><span id="evidence-summary"></span></div>
           <p class="small muted" id="current-snapshot"></p>
@@ -70,7 +70,7 @@
     <form id="submission-form">
       <div class="dialog-heading"><div><p class="eyebrow">EVIDENCE INTAKE</p><h2 id="submission-title">Add experiment</h2></div><button id="submission-close" type="button" class="icon-button" aria-label="Close submission dialog">×</button></div>
       <p id="submission-description" class="muted"></p>
-      <div id="submission-message" class="form-message" role="status" aria-live="polite" hidden></div>
+      <div id="submission-message" class="form-message" role="status" aria-live="polite" tabindex="-1" hidden></div>
       <div id="submission-conflict" class="conflict-panel" hidden>
         <p>The saved record changed. Refresh it before submitting. Your draft and selected files will stay here.</p>
         <button id="submission-refresh" type="button" class="button quiet small-button">Refresh latest record</button>

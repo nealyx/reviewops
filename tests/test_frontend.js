@@ -8,25 +8,41 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");
 
 class Element {
-  constructor(tag = "div") {
+  constructor(tag = "div", ownerDocument = null) {
+    this.ownerDocument = ownerDocument;
     this.tagName = tag.toUpperCase();
     this.children = [];
     this.listeners = {};
+    this.dataset = {};
     this.value = "";
     this.textContent = "";
     this.hidden = false;
   }
   append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
+  contains(node) {
+    return this === node || this.children.some((child) => child.contains(node));
+  }
+  replaceChildren(...children) {
+    // Model the browser's lost focus when a focused descendant is removed.
+    const losesFocus = this.children.some((child) => child.contains(this.ownerDocument?.activeElement));
+    this.children = children;
+    if (losesFocus) this.ownerDocument.activeElement = this.ownerDocument.body;
+  }
   setAttribute(name, value) { this[name] = value; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
-  focus() {}
+  focus() { this.ownerDocument.activeElement = this; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
+  reportValidity() { return true; }
 }
 
 function harness() {
   const elements = new Map();
+  const document = {};
+  document.body = new Element("body", document);
+  document.activeElement = document.body;
   const get = (id) => {
-    if (!elements.has(id)) elements.set(id, new Element());
+    if (!elements.has(id)) elements.set(id, new Element("div", document));
     return elements.get(id);
   };
   const initial = {
@@ -42,12 +58,13 @@ function harness() {
     }],
     events: [], snapshots: [],
   };
+  Object.assign(document, {
+    getElementById: get,
+    createElement: (tag) => new Element(tag, document),
+    createTextNode: (text) => Object.assign(new Element("#text", document), {textContent: text}),
+  });
   const context = vm.createContext({
-    document: {
-      getElementById: get,
-      createElement: (tag) => new Element(tag),
-      createTextNode: (text) => Object.assign(new Element("#text"), {textContent: text}),
-    },
+    document,
     // Hold startup refresh; each test supplies deterministic API responses.
     fetch: () => new Promise(() => {}),
     console, TextDecoder, URL, Blob, setTimeout,
@@ -58,13 +75,166 @@ function harness() {
     'state={runs:[initial.run],events:[],csrf_token:"test",demo:false};'
     + 'selected=initial.run.id; detail=initial; renderDetail();', context);
   return {
-    get, initial,
+    get, initial, document,
     evaluate: (code) => vm.runInContext(code, context),
     respond: (callback) => {
       context.respond = callback;
       vm.runInContext("api=async (path,body)=>respond(path,body)", context);
     },
   };
+}
+
+test("queue activation moves keyboard focus to the loaded experiment heading", async () => {
+  const ui = harness();
+  ui.respond(() => ui.initial);
+  ui.evaluate("renderQueue()");
+  const button = ui.get("run-list").children[0];
+  button.focus();
+  await button.listeners.click();
+  assert.equal(ui.document.activeElement, ui.get("detail-title"));
+  assert.equal(ui.get("detail-title").textContent, "Original package");
+  assert.notEqual(ui.get("run-list").children[0], button);
+});
+
+test("a delayed queue response does not take focus from another control", async () => {
+  const ui = harness();
+  let finish;
+  ui.respond(() => new Promise((resolve) => { finish = resolve; }));
+  ui.evaluate("renderQueue()");
+  const button = ui.get("run-list").children[0];
+  button.focus();
+  const pending = button.listeners.click();
+  ui.get("search").focus();
+  finish(ui.initial);
+  await pending;
+  assert.equal(ui.document.activeElement, ui.get("search"));
+});
+
+test("a delayed queue response retains the different queue item the user advanced to", async () => {
+  const ui = harness();
+  let finish;
+  ui.respond(() => new Promise((resolve) => { finish = resolve; }));
+  ui.evaluate('state.runs.push({...initial.run,id:"RUN-2",title:"Second package"}); renderQueue()');
+  const [first, second] = ui.get("run-list").children;
+  first.focus();
+  const pending = first.listeners.click();
+  second.focus();
+  finish(ui.initial);
+  await pending;
+  assert.equal(ui.document.activeElement, ui.get("run-list").children[1]);
+  assert.equal(ui.document.activeElement.dataset.runId, "RUN-2");
+  assert.equal(ui.get("detail-title").textContent, "Original package");
+  assert.notEqual(ui.document.activeElement, second);
+});
+
+test("queue redraw focuses search when the formerly focused run is no longer visible", () => {
+  const ui = harness();
+  ui.evaluate("renderQueue()");
+  ui.get("run-list").children[0].focus();
+  ui.get("search").value = "No matching experiment";
+  ui.evaluate("renderQueue()");
+  assert.equal(ui.document.activeElement, ui.get("search"));
+  assert.match(ui.get("run-list").children[0].textContent, /No experiments match/);
+});
+
+test("background refresh does not move focus into the experiment heading", async () => {
+  const ui = harness();
+  ui.respond((url) => url === "/api/state"
+    ? {runs: [ui.initial.run], events: [], csrf_token: "test", demo: false}
+    : ui.initial);
+  ui.get("note").focus();
+  await ui.evaluate("refresh()");
+  assert.equal(ui.document.activeElement, ui.get("note"));
+});
+
+test("a failed queue load leaves focus on the still-present activation button", async () => {
+  const ui = harness();
+  ui.respond(() => { throw new Error("Could not load this experiment."); });
+  ui.evaluate("renderQueue()");
+  const button = ui.get("run-list").children[0];
+  button.focus();
+  await button.listeners.click();
+  assert.equal(ui.document.activeElement, button);
+  assert.equal(ui.get("run-list").children[0], button);
+  assert.match(ui.get("message").textContent, /Could not load/);
+});
+
+function fillDraft(ui, mode = "new") {
+  ui.evaluate(`openSubmission("${mode}")`);
+  for (const [id, value] of Object.entries({
+    "submission-id": mode === "new" ? "NEW-1" : "RUN-1",
+    "submission-run-title": "Draft experiment",
+    "submission-summary": "Draft summary",
+    "submission-actor": "Researcher",
+    "submission-note": "Review these files",
+  })) ui.get(id).value = value;
+  ui.evaluate(`captureDraft(); draft.files=["methods.txt","results.csv"].map(name=>({
+    file:{name,size:3},reading:false,content:"ok\\n",error:""
+  })); renderFiles();`);
+}
+
+test("removing files keeps focus on a neighboring remove button, then the picker", async () => {
+  const ui = harness();
+  fillDraft(ui);
+  const firstRemove = ui.get("submission-file-list").children[0].children[1];
+  firstRemove.focus();
+  await firstRemove.listeners.click();
+  const remainingRemove = ui.get("submission-file-list").children[0].children[1];
+  assert.equal(remainingRemove["aria-label"], "Remove results.csv");
+  assert.equal(ui.document.activeElement, remainingRemove);
+  await remainingRemove.listeners.click();
+  assert.equal(ui.document.activeElement, ui.get("submission-files"));
+  assert.equal(ui.get("submission-file-list").children.length, 0);
+});
+
+for (const movesFocus of [false, true]) {
+  test(`file decoding ${movesFocus ? "leaves another control focused" : "preserves the focused remove button"}`, async () => {
+    const ui = harness();
+    fillDraft(ui);
+    const pending = ui.evaluate(`draft.files[1].content=undefined;
+      draft.files[1].file.arrayBuffer=()=>new Promise(resolve=>{globalThis.finishFile=resolve});
+      decodeFiles(draft)`);
+    ui.get("submission-file-list").children[0].children[1].focus();
+    if (movesFocus) ui.get("submission-note").focus();
+    ui.evaluate("finishFile(new Uint8Array([111,107,10]).buffer)");
+    await pending;
+    assert.equal(ui.document.activeElement, movesFocus
+      ? ui.get("submission-note")
+      : ui.get("submission-file-list").children[0].children[1]);
+    assert.equal(ui.evaluate("draft.files[1].content"), "ok\n");
+  });
+}
+
+for (const status of [400, 409]) {
+  test(`submission ${status} failure focuses its explanation and preserves the draft and files`, async () => {
+    const ui = harness();
+    fillDraft(ui, status === 409 ? "revision" : "new");
+    // Native required validation allows whitespace, which the API rejects.
+    if (status === 400) ui.get("submission-run-title").value = "   ";
+    const requests = [];
+    ui.respond((url, body) => {
+      requests.push({url, body});
+      const error = new Error(status === 400 ? "title is required." : "Stale version.");
+      error.status = status;
+      throw error;
+    });
+    ui.get("submission-save").focus();
+    await ui.evaluate("submitExperiment({preventDefault(){}})");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/api/submissions");
+    assert.equal(ui.document.activeElement, ui.get("submission-message"));
+    assert.equal(ui.get("submission-message").hidden, false);
+    assert.match(ui.get("submission-message").textContent, status === 400 ? /title is required/ : /changed elsewhere/);
+    assert.equal(ui.get("submission-dialog").open, true);
+    assert.equal(ui.get("submission-note").value, "Review these files");
+    assert.equal(ui.evaluate("draft.files.map(item=>item.file.name).join(',')"), "methods.txt,results.csv");
+    assert.equal(ui.evaluate("draft.files[0].content"), "ok\n");
+    assert.equal(ui.get("submission-save").disabled, status === 409);
+    if (status === 409) {
+      assert.equal(ui.get("submission-conflict").hidden, false);
+      assert.equal(ui.evaluate("draft.expectedVersion"), 1);
+    }
+  });
 }
 
 test("current evidence preview stays bound to the snapshot displayed before a revision", async () => {
