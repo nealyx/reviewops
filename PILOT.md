@@ -22,7 +22,8 @@ Try the current process and ReviewOps on matched synthetic or permitted cases. A
 | Detect the missing evidence | Missing file noticed before an approval |
 | Detect changed evidence | Manifest mismatch correctly interpreted |
 | Assign a reviewer and request a change | Assignee and decision note persist after restart |
-| Explain the previous decision | Correct actor label, note and revision found |
+| Submit revised evidence | Old approval does not carry over; old files stay readable |
+| Explain the previous decision | Correct actor label, note and evidence snapshot found |
 | Export the audit | Another reader can reconstruct the recorded decisions |
 
 Measure actual elapsed time, task success, and mistakes. Do not fill in numbers in advance. A few participants can provide useful feedback but do not establish a general productivity improvement.
@@ -45,4 +46,4 @@ Select one change supported by the session. State the original behavior, intende
 
 ## Publication checklist
 
-The local demo has no authentication and no multiuser hosting. Before a real team deployment, decide identity/access control, data handling, import workflow and operating ownership. Before a public portfolio release, keep sample data synthetic or explicitly permitted, describe AI assistance accurately, and include measured findings only after the pilot occurs.
+The local tool has no authentication and no multiuser hosting. Before a real team deployment, decide identity/access control, data handling, shared storage and operating ownership. Public examples stay synthetic or explicitly permitted. Describe AI assistance accurately and include measured findings only after the pilot occurs.

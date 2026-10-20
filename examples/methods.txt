@@ -1,0 +1,10 @@
+SYNTHETIC DEMONSTRATION — not an actual experiment.
+
+Question: Do two scripted measurements agree?
+Inputs: Two manually chosen values, 0.50 and 0.52.
+Procedure: Subtract the first value from the second.
+Result: The illustrative difference is 0.02.
+Limit: No sampling, uncertainty estimate, participant, or model is involved.
+
+Review task: Check the arithmetic and confirm that the result is described as
+an illustrative example rather than evidence of an effect.

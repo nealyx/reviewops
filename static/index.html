@@ -11,14 +11,14 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="ReviewOps home"><span class="brand-mark">R</span> ReviewOps <span class="brand-divider">/</span><span class="brand-sub">Research operations</span></a>
-    <div class="header-actions"><span class="demo-badge"><i></i> Synthetic demo</span><button id="export" class="button quiet">Export audit ↗</button></div>
+    <div class="header-actions"><span class="demo-badge"><i></i><span id="workspace-kind">Local workspace</span></span><button id="export" class="button quiet">Export audit ↗</button></div>
   </header>
   <main>
     <div class="intro">
       <div><p class="eyebrow">EXPERIMENT REVIEW</p><h1>From a run to a decision.</h1><p class="lede">Inspect the evidence, name the reviewer, and leave a clear record.</p></div>
-      <button class="button quiet" id="refresh">↻ Refresh evidence</button>
+      <div class="intro-actions"><button class="button quiet" id="refresh">↻ Refresh evidence</button><button class="button primary" id="add-experiment">＋ Add experiment</button></div>
     </div>
-    <div class="notice"><span class="notice-symbol">i</span><span>This local prototype uses invented experiments. A recorded approval is a reviewer’s decision, not a scientific validation or proof.</span></div>
+    <div class="notice"><span class="notice-symbol" aria-hidden="true">i</span><span id="workspace-notice">A recorded approval is a reviewer’s decision, not a scientific validation or proof.</span></div>
     <div id="message" role="status" aria-live="polite" hidden></div>
     <section class="metrics" aria-label="Queue summary">
       <div><span class="metric-label">Experiments</span><strong id="count-total">—</strong><span class="metric-caption">In this workspace</span></div>
@@ -40,7 +40,9 @@
         <div id="detail-content" hidden>
           <div class="detail-heading"><span class="eyebrow" id="run-id"></span><span id="run-status"></span></div>
           <h2 id="detail-title"></h2><p id="run-summary" class="muted summary"></p>
-          <div class="section-heading"><h3>Evidence</h3><span id="evidence-summary"></span></div>
+          <div class="record-meta"><span id="run-kind" class="badge"></span><button id="submit-revision" class="button small-button quiet">Submit revision</button></div>
+          <div class="section-heading"><h3>Current evidence</h3><span id="evidence-summary"></span></div>
+          <p class="small muted" id="current-snapshot"></p>
           <div id="evidence-list"></div>
           <p class="small muted evidence-note">Hashes compare the current files with the recorded manifest. They do not verify the experiment’s scientific conclusions.</p>
           <div class="review-form">
@@ -49,11 +51,14 @@
               <label>Your name<input id="actor" placeholder="e.g. Alex" maxlength="100" autocomplete="off"></label>
               <label>Assigned reviewer<input id="owner" placeholder="Unassigned" maxlength="100" autocomplete="off"></label>
             </div>
-            <div class="assign-row"><span class="small muted">Names are labels; this local demo does not authenticate identities.</span><button id="assign" class="button small-button quiet">Save assignee</button></div>
+            <div class="assign-row"><span class="small muted">Names are labels; this local workspace does not authenticate identities.</span><button id="assign" class="button small-button quiet">Save assignee</button></div>
             <label>Decision note<textarea id="note" rows="3" maxlength="4000" placeholder="What did you check? What needs to happen next?"></textarea></label>
             <p id="approval-reason" class="small muted"></p>
             <div class="decision-actions"><button id="changes" class="button quiet">Request changes</button><button id="approve" class="button primary">Approve review</button></div>
           </div>
+          <div class="section-heading activity-heading"><h3>Evidence snapshots</h3><span class="small muted" id="snapshot-count"></span></div>
+          <p class="small muted">Each submission keeps its full evidence set. Reviewer assignments and decisions change the record version without creating an evidence snapshot.</p>
+          <div id="snapshot-list"></div>
           <div class="section-heading activity-heading"><h3>Decision history</h3><span class="small muted">Retained across restarts</span></div>
           <ol id="history" class="history"></ol>
         </div>
@@ -61,5 +66,41 @@
     </div>
     <footer><span>ReviewOps · Local research workflow</span><span>Evidence → review → decision → audit</span></footer>
   </main>
+  <dialog id="submission-dialog" aria-labelledby="submission-title" aria-describedby="submission-description">
+    <form id="submission-form">
+      <div class="dialog-heading"><div><p class="eyebrow">EVIDENCE INTAKE</p><h2 id="submission-title">Add experiment</h2></div><button id="submission-close" type="button" class="icon-button" aria-label="Close submission dialog">×</button></div>
+      <p id="submission-description" class="muted"></p>
+      <div id="submission-message" class="form-message" role="status" aria-live="polite" hidden></div>
+      <div id="submission-conflict" class="conflict-panel" hidden>
+        <p>The saved record changed. Refresh it before submitting. Your draft and selected files will stay here.</p>
+        <button id="submission-refresh" type="button" class="button quiet small-button">Refresh latest record</button>
+      </div>
+      <details id="submission-latest" class="latest-record" hidden><summary>Latest saved record</summary><div id="submission-latest-content"></div></details>
+      <fieldset id="submission-fields">
+        <legend class="sr-only">Submission details</legend>
+        <div class="form-row">
+          <label>Experiment ID <span class="required">(required)</span><input id="submission-id" name="id" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" placeholder="e.g. arithmetic-audit-01" aria-describedby="id-help"></label>
+          <label>Assigned reviewer<input id="submission-owner" name="owner" maxlength="200" placeholder="Optional" autocomplete="off"></label>
+        </div>
+        <p id="id-help" class="field-hint">Use letters, numbers, hyphens or underscores. The ID stays the same across revisions.</p>
+        <label>Title <span class="required">(required)</span><input id="submission-run-title" name="title" required maxlength="160" placeholder="What should a reviewer recognize?"></label>
+        <label>Summary <span class="required">(required)</span><textarea id="submission-summary" name="summary" required rows="3" maxlength="4000" placeholder="Describe the question, what was done, and what a reviewer should check."></textarea></label>
+        <label class="checkbox-label"><input id="submission-demo" name="is_demo" type="checkbox"><span>This is a synthetic demonstration <span class="checkbox-hint">Leave unchecked for a user-submitted experiment. This label describes the evidence; it does not validate it.</span></span></label>
+        <div class="upload-section">
+          <div class="section-heading"><h3>Text evidence</h3><span id="file-summary" class="small muted">No files selected</span></div>
+          <label class="file-picker" for="submission-files"><span>＋ Choose text files</span><input id="submission-files" type="file" multiple aria-describedby="file-help"></label>
+          <p id="file-help" class="field-hint">UTF-8 text only. Up to 20 files, 256 KiB each, 1 MiB total. Files are stored as evidence, never executed.</p>
+          <p id="revision-file-note" class="replacement-note" hidden>A revision replaces the entire current evidence set. Choose every file you want in the new snapshot. Earlier snapshots remain available, and approval resets to Needs review.</p>
+          <div id="submission-file-list" class="submission-file-list" aria-live="polite"></div>
+          <p id="no-evidence-note" class="field-hint">You can submit without files, but approval will be blocked until evidence is attached in a revision.</p>
+        </div>
+        <label>Your name <span class="required">(required)</span><input id="submission-actor" name="actor" required maxlength="200" placeholder="Name recorded in the audit history" autocomplete="off"></label>
+        <label>Submission note <span class="required">(required)</span><textarea id="submission-note" name="note" required rows="2" maxlength="4000" placeholder="What are you submitting, or what changed?"></textarea></label>
+        <p class="field-hint">Names are recorded labels, not authenticated identities.</p>
+      </fieldset>
+      <div class="dialog-footer"><p id="submission-context" class="small muted"></p><div><button id="submission-cancel" type="button" class="button quiet">Close</button><button id="submission-save" type="submit" class="button primary">Add experiment</button></div></div>
+      <p class="draft-note">Closing keeps your draft in this tab. Reloading the page clears it.</p>
+    </form>
+  </dialog>
 </body>
 </html>
