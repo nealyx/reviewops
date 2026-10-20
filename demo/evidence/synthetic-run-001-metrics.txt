@@ -1,0 +1,6 @@
+SYNTHETIC REVIEWOPS DEMONSTRATION — NOT A REAL EXPERIMENT
+run_id: SYN-001
+purpose: Exercise review of a complete evidence package.
+fixture_cases: 12
+fixture_cases_checked: 12
+This file is a manufactured example. It reports no real model performance.

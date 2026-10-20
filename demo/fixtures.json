@@ -1,0 +1,70 @@
+{
+  "demo": true,
+  "notice": "Every record, name, file, and result in this demo is SYNTHETIC.",
+  "runs": [
+    {
+      "id": "SYN-001",
+      "title": "Synthetic baseline comparison",
+      "summary": "This synthetic package starts with two evidence files for a human review. The live evidence check shows whether those files remain present and unchanged.",
+      "owner": "Demo researcher A",
+      "status": "needs_review",
+      "evidence": [
+        {
+          "name": "synthetic-run-001-metrics.txt",
+          "expected_sha256": "429a99f5bfa323e347d5f15dc65a10df9270dc195c5061aed9111e23f3b93d8f"
+        },
+        {
+          "name": "synthetic-run-001-method.txt",
+          "expected_sha256": "68d8b051c12495620af1bc8d6ce63c21da1508af5497e0f6e9fc73ef32e189f6"
+        }
+      ]
+    },
+    {
+      "id": "SYN-002",
+      "title": "Synthetic replication package",
+      "summary": "A deliberately missing report demonstrates the approval gate. The manifest names evidence that is not present.",
+      "owner": "",
+      "status": "needs_review",
+      "evidence": [
+        {
+          "name": "synthetic-run-002-missing.txt",
+          "expected_sha256": "b2c97a1da7a948e198082cb942673d7e27710db362bf3d2ac4709d6e13c7282a"
+        }
+      ]
+    },
+    {
+      "id": "SYN-003",
+      "title": "Synthetic revised results",
+      "summary": "A deliberately changed file demonstrates tamper detection. Its current contents differ from the recorded hash.",
+      "owner": "Demo researcher B",
+      "status": "needs_review",
+      "evidence": [
+        {
+          "name": "synthetic-run-003-summary.txt",
+          "expected_sha256": "fcad8230a56f1b8fec7cd508da199490dc17ab510e93dc55c7c0e0624eee2486"
+        }
+      ]
+    },
+    {
+      "id": "SYN-004",
+      "title": "Synthetic proposal without evidence",
+      "summary": "An empty evidence package cannot be approved. A reviewer can assign an owner or request supporting files.",
+      "owner": "",
+      "status": "needs_review",
+      "evidence": []
+    },
+    {
+      "id": "SYN-005",
+      "title": "Synthetic methods clarification",
+      "summary": "This synthetic package starts with one methods file. A reviewer must judge whether the comparison is adequately explained and inspect the live evidence check.",
+      "owner": "Demo researcher C",
+      "status": "needs_review",
+      "evidence": [
+        {
+          "name": "synthetic-run-005-review.txt",
+          "expected_sha256": "64f7b78d265ea3e79d3353a110275ecba0a24ce849d91ef2fbfac20a9493dac3"
+        }
+      ]
+    }
+  ]
+}

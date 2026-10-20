@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ReviewOps local experiment review workspace">
+  <title>ReviewOps · Experiment review</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ReviewOps home"><span class="brand-mark">R</span> ReviewOps <span class="brand-divider">/</span><span class="brand-sub">Research operations</span></a>
+    <div class="header-actions"><span class="demo-badge"><i></i> Synthetic demo</span><button id="export" class="button quiet">Export audit ↗</button></div>
+  </header>
+  <main>
+    <div class="intro">
+      <div><p class="eyebrow">EXPERIMENT REVIEW</p><h1>From a run to a decision.</h1><p class="lede">Inspect the evidence, name the reviewer, and leave a clear record.</p></div>
+      <button class="button quiet" id="refresh">↻ Refresh evidence</button>
+    </div>
+    <div class="notice"><span class="notice-symbol">i</span><span>This local prototype uses invented experiments. A recorded approval is a reviewer’s decision, not a scientific validation or proof.</span></div>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+    <section class="metrics" aria-label="Queue summary">
+      <div><span class="metric-label">Experiments</span><strong id="count-total">—</strong><span class="metric-caption">In this workspace</span></div>
+      <div><span class="metric-label">Need review</span><strong id="count-review">—</strong><span class="metric-caption">Awaiting a decision</span></div>
+      <div><span class="metric-label">Blocked</span><strong id="count-blocked">—</strong><span class="metric-caption">Evidence needs attention</span></div>
+      <div><span class="metric-label">Approved</span><strong id="count-approved">—</strong><span class="metric-caption">Current evidence matches</span></div>
+    </section>
+    <div class="workspace">
+      <section class="queue panel" aria-labelledby="queue-title">
+        <div class="panel-heading"><h2 id="queue-title">Review queue</h2><span id="queue-count" class="muted"></span></div>
+        <div class="filters">
+          <label class="search"><span class="sr-only">Search experiments</span><input id="search" placeholder="Search experiments…" type="search"></label>
+          <label><span class="sr-only">Filter status</span><select id="status-filter"><option value="">All statuses</option><option value="needs_review">Needs review</option><option value="blocked">Blocked</option><option value="changes_requested">Changes requested</option><option value="approved">Approved</option></select></label>
+        </div>
+        <div id="run-list" class="run-list" aria-label="Experiments"><p class="empty">Loading workspace…</p></div>
+      </section>
+      <section class="detail panel" aria-labelledby="detail-title">
+        <div id="detail-empty" class="empty">Select an experiment to inspect its evidence.</div>
+        <div id="detail-content" hidden>
+          <div class="detail-heading"><span class="eyebrow" id="run-id"></span><span id="run-status"></span></div>
+          <h2 id="detail-title"></h2><p id="run-summary" class="muted summary"></p>
+          <div class="section-heading"><h3>Evidence</h3><span id="evidence-summary"></span></div>
+          <div id="evidence-list"></div>
+          <p class="small muted evidence-note">Hashes compare the current files with the recorded manifest. They do not verify the experiment’s scientific conclusions.</p>
+          <div class="review-form">
+            <div class="section-heading"><h3>Review</h3><span class="small muted" id="version"></span></div>
+            <div class="form-row">
+              <label>Your name<input id="actor" placeholder="e.g. Alex" maxlength="100" autocomplete="off"></label>
+              <label>Assigned reviewer<input id="owner" placeholder="Unassigned" maxlength="100" autocomplete="off"></label>
+            </div>
+            <div class="assign-row"><span class="small muted">Names are labels; this local demo does not authenticate identities.</span><button id="assign" class="button small-button quiet">Save assignee</button></div>
+            <label>Decision note<textarea id="note" rows="3" maxlength="4000" placeholder="What did you check? What needs to happen next?"></textarea></label>
+            <p id="approval-reason" class="small muted"></p>
+            <div class="decision-actions"><button id="changes" class="button quiet">Request changes</button><button id="approve" class="button primary">Approve review</button></div>
+          </div>
+          <div class="section-heading activity-heading"><h3>Decision history</h3><span class="small muted">Retained across restarts</span></div>
+          <ol id="history" class="history"></ol>
+        </div>
+      </section>
+    </div>
+    <footer><span>ReviewOps · Local research workflow</span><span>Evidence → review → decision → audit</span></footer>
+  </main>
+</body>
+</html>

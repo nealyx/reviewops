@@ -1,0 +1,5 @@
+SYNTHETIC REVIEWOPS DEMONSTRATION — NOT A REAL EXPERIMENT
+run_id: SYN-001
+method: Compare this file's SHA-256 with the recorded manifest value.
+review_question: Are the declared evidence files present and unchanged?
+Hash integrity does not establish scientific validity or methodological quality.
