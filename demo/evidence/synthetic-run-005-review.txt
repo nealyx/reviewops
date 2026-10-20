@@ -1,0 +1,5 @@
+SYNTHETIC REVIEWOPS DEMONSTRATION — NOT A REAL EXPERIMENT
+run_id: SYN-005
+purpose: Show that complete evidence does not automatically imply reviewer approval.
+review_question: Does this mock description explain its comparison groups?
+The answer requires a human judgment; the application only verifies file integrity.

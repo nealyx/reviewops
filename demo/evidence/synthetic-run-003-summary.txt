@@ -1,0 +1,4 @@
+SYNTHETIC REVIEWOPS DEMONSTRATION — DELIBERATELY CHANGED FILE
+run_id: SYN-003
+revision: This content differs from the content recorded in the fixture manifest.
+expected_behavior: Reject approval while the SHA-256 digest does not match.
