@@ -446,10 +446,17 @@ class ReviewStore:
         self._row(run_id)
         if isinstance(index, bool) or not isinstance(index, int) or index < 0:
             raise APIError(400, "Evidence index must be a nonnegative integer.")
-        entries = self.evidence(run_id)
+        entries = list(self.db.execute(
+            "SELECT name,expected_sha256,display_name FROM evidence WHERE run_id=? ORDER BY id",
+            (run_id,)))
         if index >= len(entries):
             raise APIError(404, "Evidence entry not found.")
-        return self._preview(entries[index])
+        entry = entries[index]
+        return self._preview({
+            "name": entry["display_name"] or entry["name"],
+            "storage_name": entry["name"],
+            "expected_sha256": entry["expected_sha256"],
+        })
 
     def snapshot_preview(self, run_id, snapshot_id, index):
         self._row(run_id)
@@ -468,14 +475,8 @@ class ReviewStore:
             "name": item["name"],
             "storage_name": item.get("storage_name", "snapshots/{}/{}".format(
                 snapshot_id, item["name"])),
-            "status": "missing",
+            "expected_sha256": item["sha256"],
         }
-        try:
-            path = safe_file(self.evidence_dir, entry["storage_name"])
-            if path.is_file():
-                entry["status"] = "verified" if file_sha256(path) == item["sha256"] else "changed"
-        except (OSError, ValueError):
-            pass
         return self._preview(entry)
 
     def _preview(self, entry):
@@ -483,18 +484,31 @@ class ReviewStore:
             path = safe_file(self.evidence_dir, entry["storage_name"])
         except ValueError:
             raise APIError(403, "Invalid evidence file path.")
-        if entry["status"] == "missing":
-            raise APIError(404, "Evidence is missing, unreadable, or exceeds the file limit.")
+        digest = hashlib.sha256()
+        content = bytearray()
+        size = 0
         try:
+            if not path.is_file():
+                raise APIError(404, "Evidence is missing or unreadable.")
+            # Hash and preview the same opened file. A replacement must not
+            # inherit a verification result from an earlier, separate read.
             with path.open("rb") as stream:
-                content = stream.read(MAX_PREVIEW_BYTES + 1)
+                while True:
+                    chunk = stream.read(min(65536, MAX_EVIDENCE_BYTES + 1 - size))
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_EVIDENCE_BYTES:
+                        raise APIError(404, "Evidence exceeds the 8 MiB file limit.")
+                    digest.update(chunk)
+                    content.extend(chunk[:MAX_PREVIEW_BYTES - len(content)])
         except OSError:
             raise APIError(404, "Evidence file is no longer readable.")
         return {
             "name": entry["name"],
-            "text": content[:MAX_PREVIEW_BYTES].decode("utf-8", errors="replace"),
-            "truncated": len(content) > MAX_PREVIEW_BYTES,
-            "status": entry["status"],
+            "text": content.decode("utf-8", errors="replace"),
+            "truncated": size > MAX_PREVIEW_BYTES,
+            "status": "verified" if digest.hexdigest() == entry["expected_sha256"] else "changed",
         }
 
     def state(self):

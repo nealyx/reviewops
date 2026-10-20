@@ -7,7 +7,7 @@ checks, not pilot results.
 
 ## Automated checks
 
-The local Python 3.9.6 test suite passes **56 tests**. It exercises:
+The local Python 3.9.6 test suite passes **60 tests**. It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
 - New submissions, exact UTF-8 hashing, and canonical manifest hashes.
@@ -20,11 +20,16 @@ The local Python 3.9.6 test suite passes **56 tests**. It exercises:
 - Host/Origin/token checks, bounded previews, and export labeling.
 - Public audit provenance consistency and import without a fabricated approval.
 - Consistent database reads while a second CLI connection commits a revision.
+- Preview text and integrity labels derived from the same bounded file read.
 
-Four dependency-free Node regressions also pass. Each failed against the
-previous frontend and passes with the correction: previews stay bound to the
-displayed evidence snapshot, preview failure never falls back to newer bytes,
-and assigning or clearing a reviewer preserves an unfinished decision note.
+Fifteen dependency-free Node regressions also pass. The first four demonstrated
+the earlier preview and draft defects: previews stay bound to the displayed
+evidence snapshot, preview failure never falls back to newer bytes, and assigning
+or clearing a reviewer preserves an unfinished decision note. The additional
+checks cover keyboard position during queue selection, delayed responses and
+file removal, plus visible submission errors with draft/file retention. These
+tests use a small DOM model; layout and native focus behavior require browser
+checks too.
 
 Three additional database regressions failed before the read-consistency fix:
 a detail could pair old metadata with a new filename, a queue could combine
@@ -33,6 +38,13 @@ user revision as synthetic. Each now holds one database read snapshot.
 The tests commit a revision through a separate connection at exact read
 boundaries, without timing-dependent sleeps. A fourth test checks exception
 cleanup and preserves an existing caller's transaction and rollback.
+
+Four preview regressions cover both current and retained-snapshot routes.
+Atomic replacement before or after opening a file cannot combine one file's
+verified label with another file's displayed bytes. A changed tail beyond the
+32 KiB preview still fails the full-file hash check, and an oversized replacement
+is refused. This protects the relationship between the returned text and its
+integrity label; it does not prevent later edits by the filesystem owner.
 
 The GitHub workflow checks Linux/macOS on Python 3.9/3.13. Consult
 [the actual runs](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)
@@ -87,6 +99,17 @@ revision B while the page still displayed A: opening the old preview returned
 A's retained bytes. Trying to approve from that stale page was rejected.
 Refreshing showed B's filename, hash, and bytes, kept the note, and left the
 record awaiting review. No browser warnings or errors were observed.
+
+The final keyboard pass reproduced three defects in the previous frontend:
+queue selection and file removal dropped focus to the page body, while a server
+validation error appeared above the visible part of the scrolled intake dialog.
+After the corrections, pressing Enter on a queue item focused its detail heading;
+Tab then reached **Submit revision**. Removing a file focused the next file's
+Remove button, and removing the last file focused the chooser. Submitting a
+whitespace-only title from the bottom of the dialog focused the fully visible
+error message, keeping the draft and both selected files. The invalid record was
+not saved. Delayed-response and decoding focus preservation are additionally
+covered by the deterministic Node checks.
 
 ## Limits
 
