@@ -20,6 +20,11 @@ The local Python 3.9.6 test suite passes **52 tests**. It exercises:
 - Host/Origin/token checks, bounded previews, and export labeling.
 - Public audit provenance consistency and import without a fabricated approval.
 
+Four dependency-free Node regressions also pass. Each failed against the
+previous frontend and passes with the correction: previews stay bound to the
+displayed evidence snapshot, preview failure never falls back to newer bytes,
+and assigning or clearing a reviewer preserves an unfinished decision note.
+
 The GitHub workflow checks Linux/macOS on Python 3.9/3.13. Consult
 [the actual runs](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)
 for hosted results rather than assuming a configured job has passed.
@@ -66,6 +71,13 @@ The narrower view stacked the queue and detail; the desktop view displayed them
 side by side. These widths were read from the actual rendered pages.
 
 [Captured synthetic workflow](assets/reviewops-workflow.jpg).
+
+An additional browser regression used an isolated workspace. Saving and then
+clearing an assignee preserved the draft note. A separate CLI process submitted
+revision B while the page still displayed A: opening the old preview returned
+A's retained bytes. Trying to approve from that stale page was rejected.
+Refreshing showed B's filename, hash, and bytes, kept the note, and left the
+record awaiting review. No browser warnings or errors were observed.
 
 ## Limits
 
