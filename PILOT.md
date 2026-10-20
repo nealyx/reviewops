@@ -24,6 +24,7 @@ Try the current process and ReviewOps on matched synthetic or permitted cases. A
 | Assign a reviewer and request a change | Assignee and decision note persist after restart |
 | Submit revised evidence | Old approval does not carry over; old files stay readable |
 | Explain the previous decision | Correct actor label, note and evidence snapshot found |
+| Read a downloaded review summary without the app | Distinguish current status from an earlier approval, locate its snapshot, and explain what was and was not checked |
 | Export the audit | Another reader can reconstruct the recorded decisions |
 
 Measure actual elapsed time, task success, and mistakes. Do not fill in numbers in advance. A few participants can provide useful feedback but do not establish a general productivity improvement.
