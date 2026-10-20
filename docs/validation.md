@@ -7,7 +7,7 @@ checks, not pilot results.
 
 ## Automated checks
 
-The local Python 3.9.6 test suite passes **52 tests**. It exercises:
+The local Python 3.9.6 test suite passes **56 tests**. It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
 - New submissions, exact UTF-8 hashing, and canonical manifest hashes.
@@ -19,11 +19,20 @@ The local Python 3.9.6 test suite passes **52 tests**. It exercises:
 - Manifest path confinement, symbolic links, sizes, UTF-8, and JSON boundaries.
 - Host/Origin/token checks, bounded previews, and export labeling.
 - Public audit provenance consistency and import without a fabricated approval.
+- Consistent database reads while a second CLI connection commits a revision.
 
 Four dependency-free Node regressions also pass. Each failed against the
 previous frontend and passes with the correction: previews stay bound to the
 displayed evidence snapshot, preview failure never falls back to newer bytes,
 and assigning or clearing a reviewer preserves an unfinished decision note.
+
+Three additional database regressions failed before the read-consistency fix:
+a detail could pair old metadata with a new filename, a queue could combine
+different record/history versions, and an export could label a newly submitted
+user revision as synthetic. Each now holds one database read snapshot.
+The tests commit a revision through a separate connection at exact read
+boundaries, without timing-dependent sleeps. A fourth test checks exception
+cleanup and preserves an existing caller's transaction and rollback.
 
 The GitHub workflow checks Linux/macOS on Python 3.9/3.13. Consult
 [the actual runs](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)

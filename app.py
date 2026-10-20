@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import sys
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path, PurePosixPath
@@ -162,6 +163,21 @@ class ReviewStore:
 
     def close(self):
         self.db.close()
+
+    @contextmanager
+    def _read_snapshot(self):
+        """Keep related SELECTs on one WAL snapshot, including nested readers."""
+        # SELECT alone does not start an implicit sqlite3 transaction. A CLI
+        # writer could otherwise commit between the metadata and evidence reads.
+        # Reusing a savepoint name is safe: SQLite releases the innermost match.
+        self.db.execute("SAVEPOINT reviewops_read_response")
+        try:
+            yield
+        except BaseException:
+            self.db.execute("ROLLBACK TO SAVEPOINT reviewops_read_response")
+            raise
+        finally:
+            self.db.execute("RELEASE SAVEPOINT reviewops_read_response")
 
     def _migrate_submissions(self):
         """Add submission history without discarding an existing v0.1 database."""
@@ -349,16 +365,17 @@ class ReviewStore:
         return "verified"
 
     def detail(self, run_id):
-        run = dict(self._row(run_id))
-        run["is_demo"] = bool(run["is_demo"])
-        entries = self.evidence(run_id)
-        run["recorded_status"] = run["status"]
-        run["evidence_status"] = self.evidence_status(entries)
-        run["evidence_count"] = len(entries)
-        if run["evidence_status"] != "verified":
-            run["status"] = "blocked"
-        return {"run": run, "evidence": entries, "events": self.events(run_id),
-                "snapshots": self.snapshots(run_id), "demo": run["is_demo"]}
+        with self._read_snapshot():
+            run = dict(self._row(run_id))
+            run["is_demo"] = bool(run["is_demo"])
+            entries = self.evidence(run_id)
+            run["recorded_status"] = run["status"]
+            run["evidence_status"] = self.evidence_status(entries)
+            run["evidence_count"] = len(entries)
+            if run["evidence_status"] != "verified":
+                run["status"] = "blocked"
+            return {"run": run, "evidence": entries, "events": self.events(run_id),
+                    "snapshots": self.snapshots(run_id), "demo": run["is_demo"]}
 
     def snapshots(self, run_id):
         rows = self.db.execute("SELECT * FROM snapshots WHERE run_id=? ORDER BY run_version DESC",
@@ -481,27 +498,29 @@ class ReviewStore:
         }
 
     def state(self):
-        run_ids = [row["id"] for row in self.db.execute("SELECT id FROM runs ORDER BY id")]
-        runs = [self.detail(run_id)["run"] for run_id in run_ids]
-        # A later synthetic revision cannot relabel retained real history as demo
-        # data. Export includes every snapshot, not just each run's current state.
-        history_is_demo = all(
-            json.loads(row["manifest_json"]).get("is_demo") is True
-            for row in self.db.execute("SELECT manifest_json FROM snapshots"))
-        return {"runs": runs, "events": self.events(),
-                "demo": all(run["is_demo"] for run in runs) and history_is_demo}
+        with self._read_snapshot():
+            run_ids = [row["id"] for row in self.db.execute("SELECT id FROM runs ORDER BY id")]
+            runs = [self.detail(run_id)["run"] for run_id in run_ids]
+            # A later synthetic revision cannot relabel retained real history as demo
+            # data. Export includes every snapshot, not just each run's current state.
+            history_is_demo = all(
+                json.loads(row["manifest_json"]).get("is_demo") is True
+                for row in self.db.execute("SELECT manifest_json FROM snapshots"))
+            return {"runs": runs, "events": self.events(),
+                    "demo": all(run["is_demo"] for run in runs) and history_is_demo}
 
     def export(self):
-        state = self.state()
-        return {
-            "schema_version": 2,
-            "demo": state["demo"],
-            "notice": ("SYNTHETIC demonstration data." if state["demo"]
-                       else "Local workspace export. Contains user-submitted records; review before sharing."),
-            "exported_at": now(),
-            "runs": [self.detail(run["id"]) for run in state["runs"]],
-            "events": state["events"],
-        }
+        with self._read_snapshot():
+            state = self.state()
+            return {
+                "schema_version": 2,
+                "demo": state["demo"],
+                "notice": ("SYNTHETIC demonstration data." if state["demo"]
+                           else "Local workspace export. Contains user-submitted records; review before sharing."),
+                "exported_at": now(),
+                "runs": [self.detail(run["id"]) for run in state["runs"]],
+                "events": state["events"],
+            }
 
     @staticmethod
     def _version(body):

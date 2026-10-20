@@ -37,6 +37,13 @@ Writes supply the version the operator observed. An immediate SQLite transaction
 checks that version and commits the state and event together. Stale writes get
 HTTP 409.
 
+Detail, queue, and export responses each read one consistent SQLite snapshot.
+A separate CLI import can commit while a response is being assembled; the
+response still contains either the preceding database state or the following
+one, rather than old metadata paired with a new evidence list or data label.
+Nested readers share the outer snapshot. This database guarantee does not freeze
+file contents against edits by another local process.
+
 Evidence previews use the snapshot displayed in the page. If another tab or
 import creates a revision, an already-open page still reads its original
 snapshot; refreshing loads the newer package. A preview error is shown rather
