@@ -74,6 +74,10 @@ allowed for an incomplete handoff, but that package stays blocked.
 - At most 20 files, valid UTF-8, 256 KiB each, 1 MiB total.
 - Display names: simple filenames, at most 120 characters, unique ignoring
   letter case. Directories, traversal, and unsafe filename forms are refused.
+  Reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, and
+  `LPT1`–`LPT9`) are refused even with extensions or different letter case,
+  because they cannot be stored in portable workspace backups. Rename the
+  source file or choose another manifest display name, such as `auxiliary.txt`.
 - CLI paths stay within the manifest folder and cannot use symbolic links.
   A manifest is limited to 2 MiB.
 

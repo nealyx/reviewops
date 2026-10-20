@@ -13,6 +13,7 @@ MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_JSON_DEPTH = 32
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}$")
+RESERVED_FILENAME = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", re.IGNORECASE)
 
 
 class SubmissionError(ValueError):
@@ -105,6 +106,11 @@ def prepare_submission(body):
         name = text(entry.get("name"), "evidence name", 120)
         if not FILENAME.fullmatch(name) or name in (".", "..") or name.endswith("."):
             raise SubmissionError("Evidence names must be simple filenames without directories.")
+        # Keep accepted evidence compatible with the portable backup format.
+        if RESERVED_FILENAME.fullmatch(name):
+            raise SubmissionError("Evidence filename {!r} is a reserved device name, even with "
+                                  "an extension. Rename it before submitting so the workspace "
+                                  "can be backed up portably.".format(name))
         if name.casefold() in names:
             raise SubmissionError("Evidence filenames must be unique, ignoring letter case.")
         names.add(name.casefold())

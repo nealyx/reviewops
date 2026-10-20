@@ -7,7 +7,7 @@ These are software checks, not pilot results.
 
 ## Automated checks
 
-The current local Python 3.9.6 test suite passes **93 tests**, run on
+The current local Python 3.9.6 test suite passes **98 tests**, run on
 October 20, 2026.
 It exercises:
 
@@ -28,7 +28,7 @@ It exercises:
 - Portable summaries preserving current status, old decisions, and unknown legacy references.
 - Strict version-checked summary downloads, escaped content, and unchanged database records.
 
-Thirty-seven dependency-free Node regressions also pass. The first four demonstrated
+Forty-three dependency-free Node regressions also pass. The first four demonstrated
 the earlier preview and draft defects: previews stay bound to the displayed
 evidence snapshot, preview failure never falls back to newer bytes, and assigning
 or clearing a reviewer preserves an unfinished decision note. The additional
@@ -53,6 +53,18 @@ approval, real-to-synthetic history labeling, legacy references and absent
 events, hostile HTML-like text, strict HTTP queries and headers, request
 boundaries, no writes, and a concurrent revision through a separate connection.
 Earlier manifests remain explicitly unverified in this export.
+
+Five Python filename tests reproduce the mismatch between accepted evidence
+and portable archive rules. Reserved device names now fail before any create or
+revision writes, through both the CLI and HTTP API. A permitted `auxiliary.txt`
+file with a UTF-8 BOM and CRLF line endings survives import, backup, inspection,
+and restore with exact bytes and retained snapshots.
+
+Six additional frontend tests cover saved-submission rendering after a failed
+queue refresh, delayed selection success/failure, conservative historical data
+labels, and reserved-name refusal. Four save/selection tests failed against the
+previous implementation. A successful save now updates the visible ID, evidence,
+and action target together, even when a following read fails.
 
 Three additional database regressions failed before the read-consistency fix:
 a detail could pair old metadata with a new filename, a queue could combine
@@ -159,6 +171,17 @@ errors were observed. Viewport overrides were reset after checking.
 
 [Captured summary download](assets/reviewops-summary-download.jpg) ·
 [Downloaded synthetic example](assets/reviewops-synthetic-summary.html).
+
+A further synthetic browser check used an isolated server that deliberately
+returned one HTTP 503 for the queue read immediately after saving. The app
+displayed the new experiment and `auxiliary.txt`, labeled the save successful,
+and identified the failed refresh. A subsequent synthetic decision targeted
+that displayed snapshot; the previously displayed experiment remained unchanged.
+The browser refused `aux.txt` before submission, preserved the form, and accepted
+`auxiliary.txt`. Its stored hash matched the source BOM/CRLF bytes. The intentional
+503 was the expected failure in this check.
+
+[Captured saved-record recovery](assets/reviewops-save-recovery.jpg).
 
 ## Limits
 

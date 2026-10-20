@@ -116,6 +116,11 @@ the draft began on an earlier snapshot. A successful decision clears the text
 that was submitted, while preserving any new typing. Drafts are held only in
 the tab's memory and disappear on page reload or close.
 
+After a submission saves, its returned record and evidence are displayed
+immediately. If the following queue refresh fails, the app identifies the save
+as successful and warns that the wider queue may be out of date. Review actions
+continue to refer to the evidence shown on screen.
+
 ## Hand off a readable review summary
 
 **Download review summary** saves one experiment's current status, full expected

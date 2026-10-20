@@ -11,6 +11,7 @@ describes the next validation step.
 |---|---|
 | [`app.py`](app.py) | Loopback HTTP server, SQLite records, snapshots, hash checks, decisions, exports, and startup |
 | [`submissions.py`](submissions.py) | Submission validation and explicitly selected local manifest/file imports |
+| [`review_summary.py`](review_summary.py) | Inert HTML summaries from captured detail records, preserving status and historical references |
 | [`workspace_archive.py`](workspace_archive.py) | Offline preparation, bounded backups, inspection, and restore into new directories |
 | [`static/`](static/) | Browser interface; plain HTML, CSS, and JavaScript |
 | [`demo/`](demo/) | Synthetic startup fixtures |
