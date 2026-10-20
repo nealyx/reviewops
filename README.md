@@ -21,6 +21,8 @@ has been measured.
 [Manifest format](docs/manifests.md) · [Design and boundaries](docs/design.md) ·
 [Validation and preview](docs/validation.md) · [Researcher pilot](PILOT.md)
 
+![ReviewOps with a synthetic experiment awaiting review after a revision](docs/assets/reviewops-overview.jpg)
+
 ## Run locally
 
 Python 3.9 or later; no third-party dependencies, accounts, model APIs, or cloud services.
