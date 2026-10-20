@@ -1,13 +1,14 @@
 # Validation record — October 20, 2026
 
-This record covers the v0.2 submission and retained-evidence workflow, plus the
-published EGRA audit import. Browser walkthrough records are synthetic; the
-separate audit fixture comes from public saved outputs. These are software
-checks, not pilot results.
+This record covers the v0.2 submission and retained-evidence workflow.
+The bundled examples and browser walkthrough records are synthetic.
+These are software checks, not pilot results.
 
 ## Automated checks
 
-The local Python 3.9.6 test suite passes **60 tests**. It exercises:
+The current local Python 3.9.6 test suite passes **59 tests**, rerun on
+October 20, 2026 after removing a separate audit example and its fixture test.
+It exercises:
 
 - Approval refusal for missing, modified, or empty evidence.
 - New submissions, exact UTF-8 hashing, and canonical manifest hashes.
@@ -18,11 +19,10 @@ The local Python 3.9.6 test suite passes **60 tests**. It exercises:
 - Persistence after restart and append-only event/snapshot controls.
 - Manifest path confinement, symbolic links, sizes, UTF-8, and JSON boundaries.
 - Host/Origin/token checks, bounded previews, and export labeling.
-- Public audit provenance consistency and import without a fabricated approval.
 - Consistent database reads while a second CLI connection commits a revision.
 - Preview text and integrity labels derived from the same bounded file read.
 
-Fifteen dependency-free Node regressions also pass. The first four demonstrated
+Fifteen dependency-free Node regressions also pass in that rerun. The first four demonstrated
 the earlier preview and draft defects: previews stay bound to the displayed
 evidence snapshot, preview failure never falls back to newer bytes, and assigning
 or clearing a reviewer preserves an unfinished decision note. The additional
@@ -54,21 +54,6 @@ The first hosted pass exposed a Python-version difference: Python 3.13 accepted
 nesting deep enough to trigger the older interpreter's recursion error.
 The parser now enforces an explicit 32-container limit; the regression checks
 both sides of that boundary rather than relying on interpreter behavior.
-
-## Published audit handoff
-
-The [EGRA walkthrough](public-audit-walkthrough.md) was exercised twice: importing
-the recorded package, and running its replay recipe against a separate clean
-checkout at the pinned public source commit. Both packages imported into fresh
-workspaces with four verified files, an empty owner, version 1, one submission
-event, and **Needs review** status. Reopening, evidence previews, and exports
-preserved that state. Neither path recorded a review decision.
-
-The fixture test checks the report and source-manifest hashes, the ordered
-public file-set identity, stated scope, and initial review state. It does not
-execute the EEG study. The separate source verifier checked 46 CSV hashes,
-46 regression groups, and 774 summary values; this particular walkthrough did
-not request bootstrap recomputation.
 
 ## Browser walkthrough
 

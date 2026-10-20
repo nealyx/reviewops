@@ -13,12 +13,11 @@ describes the next validation step.
 | [`submissions.py`](submissions.py) | Submission validation and explicitly selected local manifest/file imports |
 | [`static/`](static/) | Browser interface; plain HTML, CSS, and JavaScript |
 | [`demo/`](demo/) | Synthetic startup fixtures |
-| [`examples/`](examples/) | Explicitly imported packages, including the public saved-output audit |
-| [`tests/`](tests/) | Store/HTTP behavior, migration, input boundaries, public fixture provenance, and frontend regressions |
+| [`examples/`](examples/) | Synthetic manifest and evidence for an explicitly selected import |
+| [`tests/`](tests/) | Store/HTTP behavior, migration, input boundaries, and frontend regressions |
 
-Read the [design and boundaries](docs/design.md), [manifest format](docs/manifests.md),
-or [public audit walkthrough](docs/public-audit-walkthrough.md) when changing
-those paths.
+Read the [design and boundaries](docs/design.md) and
+[manifest format](docs/manifests.md) when changing those paths.
 
 ## Work in an isolated local workspace
 
