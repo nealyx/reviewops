@@ -59,7 +59,7 @@ class StoreTests(unittest.TestCase):
         approved = self.decision("SYN-001")
         original_events = approved["events"]
         self.assertEqual(approved["run"]["status"], "approved")
-        evidence_path = self.store.evidence_dir / approved["evidence"][0]["name"]
+        evidence_path = self.store.evidence_dir / approved["evidence"][0]["storage_name"]
         evidence_path.write_text("SYNTHETIC deliberate modification after approval.\n")
         blocked = self.store.detail("SYN-001")
         self.assertEqual(blocked["run"]["status"], "blocked")
@@ -70,7 +70,7 @@ class StoreTests(unittest.TestCase):
 
     def test_removed_approved_evidence_blocks_effective_status(self):
         approved = self.decision("SYN-005")
-        (self.store.evidence_dir / approved["evidence"][0]["name"]).unlink()
+        (self.store.evidence_dir / approved["evidence"][0]["storage_name"]).unlink()
         detail = self.store.detail("SYN-005")
         self.assertEqual(detail["run"]["status"], "blocked")
         self.assertEqual(detail["run"]["evidence_status"], "missing")
@@ -112,7 +112,7 @@ class StoreTests(unittest.TestCase):
 
     def test_restart_persists_decisions_events_and_modified_evidence(self):
         self.decision("SYN-005")
-        path = self.store.evidence_dir / "synthetic-run-005-review.txt"
+        path = self.store.evidence_dir / self.store.evidence("SYN-005")[0]["storage_name"]
         path.write_text("SYNTHETIC updated after review.\n")
         before = self.store.detail("SYN-005")
         self.store.close()
@@ -134,7 +134,7 @@ class StoreTests(unittest.TestCase):
 
     def test_path_traversal_absolute_paths_and_symlinks_are_rejected(self):
         for name in ("../outside.txt", "/etc/passwd", "a/../../outside.txt",
-                     "a\\..\\outside.txt", "./file.txt", "a//file.txt"):
+                     "a\\..\\outside.txt", "./file.txt", "a//file.txt", "\ud800"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 safe_file(self.store.evidence_dir, name)
         outside = self.root / "outside.txt"
@@ -208,12 +208,14 @@ class HTTPTests(unittest.TestCase):
         data = None if body is None else json.dumps(body)
         values = {"Content-Type": "application/json"}
         values.update(headers or {})
-        connection.request(method, path, body=data, headers=values)
-        response = connection.getresponse()
-        payload = response.read()
-        status = response.status
-        received_headers = dict(response.getheaders())
-        connection.close()
+        try:
+            connection.request(method, path, body=data, headers=values)
+            response = connection.getresponse()
+            payload = response.read()
+            status = response.status
+            received_headers = dict(response.getheaders())
+        finally:
+            connection.close()
         try:
             payload = json.loads(payload)
         except ValueError:
@@ -250,7 +252,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(len(self.store.events()), 5)
 
     def test_changed_evidence_preview_is_bounded_with_utf8_replacement(self):
-        path = self.store.evidence_dir / "synthetic-run-005-review.txt"
+        path = self.store.evidence_dir / self.store.evidence("SYN-005")[0]["storage_name"]
         path.write_bytes(b"<script>not executable</script>\n"
                          + b"A" * MAX_PREVIEW_BYTES + b"\xff")
         status, preview, _ = self.request("GET", "/api/runs/SYN-005/evidence/0")
@@ -305,6 +307,7 @@ class HTTPTests(unittest.TestCase):
         cases = [
             {},
             {"X-ReviewOps-Token": "invalid"},
+            {"X-ReviewOps-Token": "é"},
             {"X-ReviewOps-Token": self.server.token, "Origin": "https://unrelated.example"},
             {"X-ReviewOps-Token": self.server.token, "Host": "unrelated.example"},
         ]
@@ -341,8 +344,20 @@ class HTTPTests(unittest.TestCase):
 
     def test_body_cap_and_validation(self):
         headers = {"X-ReviewOps-Token": self.server.token}
-        status, _, _ = self.request("POST", "/api/runs/SYN-001/assign",
-                                    {"owner": "x" * MAX_BODY_BYTES}, headers)
+        # The server rejects oversized declared bodies before reading them.
+        # Send headers only: streaming a rejected 2 MiB body may get BrokenPipe.
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        try:
+            connection.putrequest("POST", "/api/runs/SYN-001/assign")
+            connection.putheader("X-ReviewOps-Token", self.server.token)
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", str(MAX_BODY_BYTES + 1))
+            connection.endheaders()
+            response = connection.getresponse()
+            status = response.status
+            response.read()
+        finally:
+            connection.close()
         self.assertEqual(status, 413)
         status, _, _ = self.request("POST", "/api/runs/SYN-001/assign",
                                     {"owner": "Demo", "actor": "Demo",

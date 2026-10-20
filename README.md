@@ -1,103 +1,118 @@
 # ReviewOps
 
-A local prototype for coordinating research experiment reviews: inspect bundled
-runs in a queue, assign a reviewer, inspect evidence, record a decision, and
-retain the audit history. New-run creation and import are not included in v0.1.
+[![Checks](https://github.com/nealyx/reviewops/actions/workflows/checks.yml/badge.svg)](https://github.com/nealyx/reviewops/actions/workflows/checks.yml)
 
-**Every bundled run, researcher name, evidence file, and result is synthetic.**
-This is an independent demonstration built with AI-assisted engineering. It
-contains no Millennium internal research, unpublished results, credentials, or
-copied internal code.
+**Know what was reviewed, which evidence it used, and what needs to happen next.**
 
-The intended next step is a small pilot with researchers who currently coordinate
-experiment reviews manually. No user adoption, time savings, or research outcome
-has been measured yet.
+ReviewOps is a local experiment-review workspace. Submit a small evidence package,
+assign its reviewer, inspect the files, and record a decision. When the experiment
+changes, submit a new snapshot: the old files and decision remain readable, and
+the new evidence needs a fresh review.
+
+It addresses a common research handoff problem: results live in one folder,
+comments live somewhere else, and nobody is sure whether an approval refers to
+the latest files.
+
+**Status: working local prototype; researcher pilot pending.** All bundled runs,
+names, files, and results are synthetic. This is an independent project built
+with AI-assisted engineering. No adoption, time savings, or scientific outcome
+has been measured.
+
+[Manifest format](docs/manifests.md) · [Design and boundaries](docs/design.md) ·
+[Validation and preview](docs/validation.md) · [Researcher pilot](PILOT.md)
 
 ## Run locally
 
-Requires Python 3.9 or later. There are no third-party packages, model APIs,
-accounts, or cloud services.
+Python 3.9 or later; no third-party dependencies, accounts, model APIs, or cloud services.
 
 ```sh
+git clone https://github.com/nealyx/reviewops.git
+cd reviewops
 python3 app.py --port 8787
 ```
 
-Open **http://127.0.0.1:8787/**. Stop the server with Ctrl+C.
+Open **http://127.0.0.1:8787/**. Stop with Ctrl+C. On macOS,
+`launch.command` also starts the app.
 
-Data persists in `runtime/reviewops.sqlite3` and files are copied into
-`runtime/evidence/` on the first launch. Restarting with the same data directory
-preserves assignments, decisions, audit events, and changed evidence files.
-Bundled files in `demo/` are not changed by normal use.
+Five bundled cases cover valid evidence, a missing file, changed bytes, and an
+empty package. They are copied once into `runtime/`; restarting preserves work
+and never restores original files over your edits.
 
-For a separate, fresh demonstration without deleting existing work:
+For a separate workspace without demonstration records:
 
 ```sh
-python3 app.py --port 8788 --data-dir ./runtime/fresh-demo
+python3 app.py --empty --data-dir ./runtime/my-workspace --port 8788
 ```
 
-## Five demonstration cases
+`--empty` affects only an uninitialized directory. It never clears existing records.
 
-| Run | Evidence | What to try |
-| --- | --- | --- |
-| SYN-001 | Two files with matching SHA-256 hashes | Assign an owner and approve with a review note. |
-| SYN-002 | A missing file | Request the missing evidence; approval is refused. |
-| SYN-003 | A deliberately changed file | Inspect expected and actual hashes; approval is refused. |
-| SYN-004 | No files | Request an evidence package; an empty package cannot be approved. |
-| SYN-005 | One file with a matching hash | Judge the synthetic methods description and approve or request changes. |
+## A five-minute walkthrough
 
-After approving SYN-001 or SYN-005, edit or remove its copied file in
-`runtime/evidence/`, then refresh the page. Its effective status becomes
-**Blocked** while the previous approval event remains in the audit trail.
-The prior approval is historical evidence of a decision, not a claim that a
-modified file is still approved. Restoring the exact original bytes makes the
-previous approval effective again; this prototype checks content identity rather
-than recording a continuous file-monitoring history.
+1. Open **SYN-001**, read its two evidence files, assign a reviewer, and approve
+   with a note explaining what you checked.
+2. Open **SYN-002**. Its missing file blocks approval. Record a change request.
+3. Use **Add experiment** to submit metadata and small UTF-8 text files. Mark it
+   synthetic if it is a demonstration.
+4. Approve it, then **Submit revision** with changed evidence. Every revision is
+   a complete replacement package. Its status returns to **Needs review**.
+5. Open the earlier snapshot: its files and decision remain readable. Export
+   the audit to inspect the recorded history outside the app.
 
-## Review rules
+An empty package may be submitted as an incomplete handoff; it stays blocked.
+Hash verification checks content identity, **not scientific correctness**.
+A reviewer still needs to assess the methods, results, and limitations.
 
-- Approval requires at least one file and freshly verified matching hashes for
-  every file in that run's manifest.
-- Missing, changed, or empty evidence makes any run's effective status **Blocked**,
-  including runs that have not been reviewed. The recorded review status remains
-  available separately.
-- Hash matching establishes file integrity only. It does not validate a result,
-  detect a flawed method, execute an experiment, or certify scientific correctness.
-- Decisions require an actor name and a nonempty note. Actor names are self-reported.
-- Changes to assignments and decisions increment the run's version. A stale
-  version returns HTTP 409, requiring the reviewer to refresh before retrying.
-- Successful mutations and seeded records append audit events. Application
-  code never rewrites them; SQLite triggers also reject ordinary event updates
-  and deletes. Each event records the resulting run version, so exported history
-  identifies which revision an action refers to.
-- Evidence is read only under the designated evidence directory. Absolute paths,
-  parent-directory traversal, symbolic links, and files over 8 MiB cannot satisfy
-  the evidence gate.
-- Export downloads current run details, current evidence verification, and the
-  full recorded audit history as JSON. It excludes the local request token.
-- Evidence previews show at most the first 32 KiB as plain text, with a truncation
-  indicator. Invalid UTF-8 bytes are replaced. Preview requests select an entry
-  from that run's manifest by index; they cannot request an arbitrary file.
-  Changed files remain readable for review; missing or invalid files are refused.
+You can also import the checked-in synthetic example:
 
-## Scope and limitations
+```sh
+python3 app.py --empty --data-dir ./runtime/import-demo \
+  --import-manifest examples/manifest.json
+python3 app.py --data-dir ./runtime/import-demo --port 8788
+```
 
-This is a **local, single-user prototype**, not a production multiuser service.
-It binds only to `127.0.0.1`, validates Host and Origin headers, requires a
-per-process token for writes, and caps request bodies at 16 KiB. These controls
-reduce accidental browser-origin access; they do not authenticate researchers or
-protect against other processes running as the same operating-system user.
+The importer copies only files listed by the selected manifest. Later edits to
+the source files do not change the submitted snapshot.
+See the [format and revision example](docs/manifests.md).
 
-SQLite and the evidence folder can still be changed by their owner. The audit is
-append-only through this application, not a cryptographically tamper-proof or
-independently witnessed ledger. Evidence is rechecked when requested and before
-approval; there is no background file watcher. A separate process can change
-files at any time, including between verification and a response.
+## What happens when evidence changes?
 
-The server processes requests sequentially. The version check demonstrates
-conflict handling, but no load testing or multiuser deployment is claimed.
-The prototype does not import private projects, run untrusted artifacts, execute
-shell commands, upload files, provide user authentication, or connect to GitHub.
-The data model can be generalized after a pilot establishes the actual workflow.
+| Action | Current status | Historical record |
+|---|---|---|
+| Submit valid evidence | Needs review | New snapshot and submission event |
+| Approve with a note | Approved | Decision references that snapshot |
+| Request changes | Changes requested | Request references that snapshot |
+| Submit revised evidence | Needs review | Earlier snapshots and decisions retained |
+| Modify or remove a stored file outside the app | Blocked | Previous decision retained; mismatch visible |
+| Restore the exact approved bytes | Previous approval becomes effective again | No continuous file-change history is claimed |
+
+Each assignment, decision, or submission increments the **record version**.
+Only submissions create a new **evidence snapshot**. Stale versions are rejected,
+so two open tabs cannot silently overwrite one another's actions.
+
+## Data and operating limits
+
+This is a **local, single-user tool**. Names are self-reported labels, not
+authenticated identities. There is no team server, messaging service, experiment
+runner, or GitHub integration. Nothing is uploaded to a cloud service.
+
+- Submissions: 20 UTF-8 text files, 256 KiB per file, 1 MiB total evidence, and
+  2 MiB per JSON request. Binary artifacts and large datasets are out of scope.
+- Previews show at most the first 32 KiB, as plain text, never executable HTML.
+- The server binds to `127.0.0.1`, checks Host/Origin, and requires a local
+  request token for writes. Other processes running as your OS user remain
+  outside that boundary.
+- SQLite triggers reject ordinary updates/deletes to audit events and snapshot
+  records. The database owner can bypass those controls; this is not an
+  independently witnessed or tamper-proof ledger.
+- Files are checked on reads and before approval. There is no continuous watcher;
+  another local process can change a file between verification and a response.
+- Exports include metadata, manifests, verification, and history. They **do not**
+  include evidence file bodies or constitute a restorable backup. Stop the
+  server and copy the complete runtime directory to back up a workspace.
+
+`runtime/` is ignored by Git. For a custom data directory, use a location outside
+the checkout or add your own ignore rule. Review exports before sharing
+user-submitted records.
 
 ## Verify
 
@@ -105,42 +120,33 @@ The data model can be generalized after a pilot establishes the actual workflow.
 python3 -m unittest discover -s tests -v
 ```
 
-The tests use temporary data directories. They cover approval gates, effective
-approval invalidation after evidence changes, optimistic conflicts, restart
-persistence, audit immutability through ordinary SQL mutations, path confinement,
-request token and origin/host checks, body limits, bounded evidence previews,
-and token-free export.
+Tests use temporary directories and synthetic data. They cover integrity gates,
+retained revisions, approval reset, stale updates, failed-write rollback,
+restart persistence, manifest confinement, HTTP boundaries, previews, and export.
+The workflow runs on Linux and macOS; its badge reports the latest hosted result.
+Software tests do not establish multiuser scale or scientific validity.
 
 ## API
 
-All responses are JSON except static frontend assets. `GET /api/state` returns a
-local `csrf_token`; write requests send it in the `X-ReviewOps-Token` header and use
-`Content-Type: application/json`.
+`GET /api/state` returns a local `csrf_token`. Writes send it in
+`X-ReviewOps-Token` with `Content-Type: application/json`.
 
 | Method | Route | Purpose |
-| --- | --- | --- |
-| GET | `/api/state` | Runs, audit events, synthetic-data indicator, and request token |
-| GET | `/api/runs/<id>` | Run details, current file hashes, and run-specific events |
-| GET | `/api/runs/<id>/evidence/<index>` | Plain-text preview of a manifest entry, using its zero-based index |
+|---|---|---|
+| GET | `/api/state` | Queue, events, data indicator, token |
+| GET | `/api/runs/<id>` | Details, current evidence, snapshots, history |
+| POST | `/api/submissions` | Create or revise a complete evidence package |
 | POST | `/api/runs/<id>/assign` | `{owner, actor, expected_version}` |
 | POST | `/api/runs/<id>/decision` | `{decision, actor, note, expected_version}` |
-| GET | `/api/export` | Current details and complete recorded audit history |
+| GET | `/api/runs/<id>/evidence/<index>` | Current evidence preview |
+| GET | `/api/runs/<id>/snapshots/<snapshot>/evidence/<index>` | Retained evidence preview |
+| GET | `/api/export` | Version 2 audit export without the request token |
 
-`decision` is `approved` or `changes_requested`. The effective run status is
-`needs_review`, `approved`, `changes_requested`, or `blocked`.
-`recorded_status` preserves the stored review status when a run is blocked.
-Evidence status is `verified`, `missing`, `changed`, or `empty`; if multiple file
-failures exist, the run summary prioritizes `changed` over `missing`.
+Decisions are `approved` or `changes_requested`. Effective status may also be
+`needs_review` or `blocked`; `recorded_status` preserves the stored review status.
+HTTP 400 means invalid input, 403 a request-boundary failure, 404 a missing entry,
+409 a stale version, 413 an oversized request, and 422 a failed approval gate.
 
-HTTP 400 indicates invalid input, 403 a request-boundary failure, 404 an unknown
-run or route, 409 a stale version, 413 an oversized body, and 422 a failed approval
-evidence gate. Assignment and decision endpoints return the updated run detail.
-
-## Pilot questions
-
-Use only approved, non-sensitive examples when testing a real workflow.
-Measure time from “ready for review” to a recorded decision, the proportion of
-packages missing required evidence, and how often reviewers need clarification.
-Compare against the existing coordination method on equivalent tasks. Keep the
-results as observations, including failures, rather than treating this demo as
-evidence of an improvement.
+The next milestone is an observed researcher handoff using permitted examples.
+The [pilot guide](PILOT.md) records task success, time, confusion, and changes
+supported by feedback. Measured usefulness remains an open question.

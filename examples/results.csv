@@ -1,0 +1,4 @@
+data_kind,measurement,value
+synthetic,first,0.50
+synthetic,second,0.52
+synthetic,difference,0.02

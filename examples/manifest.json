@@ -1,0 +1,13 @@
+{
+  "id": "DEMO-REPLICATION",
+  "title": "Synthetic replication handoff",
+  "summary": "Compare two scripted measurements and inspect their method before recording a review decision.",
+  "owner": "Demo reviewer",
+  "actor": "Demo submitter",
+  "note": "Ready for a methods review. All values are synthetic.",
+  "is_demo": true,
+  "evidence": [
+    {"name": "methods.txt", "path": "methods.txt"},
+    {"name": "results.csv", "path": "results.csv"}
+  ]
+}

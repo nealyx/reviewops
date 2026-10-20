@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ReviewOps: a local, synthetic experiment-review prototype (Python stdlib only)."""
+"""ReviewOps: a local experiment-review workspace (Python stdlib only)."""
 
 import argparse
 import hashlib
@@ -9,14 +9,16 @@ import secrets
 import shutil
 import sqlite3
 import sys
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
+from submissions import SubmissionError, parse_json, prepare_submission, read_manifest
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-MAX_BODY_BYTES = 16 * 1024
+MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 8 * 1024 * 1024
 MAX_PREVIEW_BYTES = 32 * 1024
 
@@ -36,6 +38,10 @@ def safe_file(root, name):
     """Resolve a relative file within root, refusing traversal and symlinks."""
     if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
         raise ValueError("Evidence names must be nonempty relative paths.")
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("Evidence names must contain valid Unicode.")
     relative = PurePosixPath(name)
     if relative.is_absolute() or any(part in ("", ".", "..") for part in name.split("/")):
         raise ValueError("Path traversal and absolute paths are not allowed.")
@@ -60,8 +66,12 @@ def file_sha256(path):
     if path.stat().st_size > MAX_EVIDENCE_BYTES:
         raise ValueError("Evidence file exceeds the local prototype's 8 MiB limit.")
     digest = hashlib.sha256()
+    size = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(65536), b""):
+            size += len(chunk)
+            if size > MAX_EVIDENCE_BYTES:
+                raise ValueError("Evidence file exceeds the local prototype's 8 MiB limit.")
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -74,11 +84,15 @@ def bounded_text(value, name, maximum=200, allow_empty=False):
         raise APIError(400, "{} is required.".format(name))
     if len(value) > maximum:
         raise APIError(400, "{} exceeds {} characters.".format(name, maximum))
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise APIError(400, "{} contains invalid Unicode.".format(name))
     return value
 
 
 class ReviewStore:
-    def __init__(self, data_dir, fixture_dir=None):
+    def __init__(self, data_dir, fixture_dir=None, seed_demo=True):
         self.data_dir = Path(data_dir).resolve()
         self.evidence_dir = self.data_dir / "evidence"
         self.fixture_dir = Path(fixture_dir or PROJECT_DIR / "demo").resolve()
@@ -133,15 +147,116 @@ class ReviewStore:
                 SELECT RAISE(ABORT, 'Audit events are append-only');
             END;
         """)
-        if not self.db.execute("SELECT 1 FROM metadata WHERE key='seeded'").fetchone():
-            try:
-                self._seed()
-            except Exception:
-                self.db.close()
-                raise
+        try:
+            self._migrate_submissions()
+            if not self.db.execute("SELECT 1 FROM metadata WHERE key='seeded'").fetchone():
+                if seed_demo:
+                    self._seed()
+                else:
+                    with self.db:
+                        self.db.execute("INSERT INTO metadata VALUES ('seeded', ?)", (now(),))
+            self._capture_legacy_snapshots()
+        except BaseException:
+            self.db.close()
+            raise
 
     def close(self):
         self.db.close()
+
+    def _migrate_submissions(self):
+        """Add submission history without discarding an existing v0.1 database."""
+        columns = {r["name"] for r in self.db.execute("PRAGMA table_info(runs)")}
+        if "is_demo" not in columns:
+            self.db.execute("ALTER TABLE runs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 1")
+        if "snapshot_id" not in columns:
+            self.db.execute("ALTER TABLE runs ADD COLUMN snapshot_id TEXT")
+        columns = {r["name"] for r in self.db.execute("PRAGMA table_info(evidence)")}
+        if "display_name" not in columns:
+            self.db.execute("ALTER TABLE evidence ADD COLUMN display_name TEXT")
+        columns = {r["name"] for r in self.db.execute("PRAGMA table_info(events)")}
+        if "run_version" not in columns:
+            # Very early local prototypes did not record an event's version.
+            # Keep that absence explicit rather than inventing historical data.
+            self.db.execute("ALTER TABLE events ADD COLUMN run_version INTEGER")
+        if "snapshot_id" not in columns:
+            self.db.execute("ALTER TABLE events ADD COLUMN snapshot_id TEXT")
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS snapshots (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                run_version INTEGER NOT NULL,
+                manifest_sha256 TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        self.db.executescript("""
+            CREATE TRIGGER IF NOT EXISTS snapshots_no_update
+            BEFORE UPDATE ON snapshots BEGIN
+                SELECT RAISE(ABORT, 'Evidence snapshots are append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS snapshots_no_delete
+            BEFORE DELETE ON snapshots BEGIN
+                SELECT RAISE(ABORT, 'Evidence snapshots are append-only');
+            END;
+        """)
+        self.db.commit()
+
+    def _capture_legacy_snapshots(self):
+        """Retain bytes present at upgrade, preserving expected hashes and events.
+
+        Old events cannot be retroactively attributed to these captured bytes.
+        Current evidence is redirected to the retained copy so new decisions and
+        previews refer to the same snapshot. Original files are left untouched.
+        """
+        created = []
+        try:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                rows = list(self.db.execute("SELECT * FROM runs WHERE snapshot_id IS NULL"))
+                for row in rows:
+                    entries = self.evidence(row["id"])
+                    snapshot_id = uuid.uuid4().hex
+                    destination = safe_file(self.evidence_dir, "snapshots/" + snapshot_id)
+                    destination.mkdir(parents=True, exist_ok=False)
+                    created.append(destination)
+                    retained = []
+                    for index, entry in enumerate(entries):
+                        storage_name = "snapshots/{}/evidence-{:04d}.txt".format(
+                            snapshot_id, index)
+                        size = None
+                        if entry["status"] != "missing":
+                            source = safe_file(self.evidence_dir, entry["storage_name"])
+                            with source.open("rb") as stream:
+                                data = stream.read(MAX_EVIDENCE_BYTES + 1)
+                            if len(data) > MAX_EVIDENCE_BYTES:
+                                raise ValueError("Legacy evidence exceeded the 8 MiB limit during capture.")
+                            safe_file(self.evidence_dir, storage_name).write_bytes(data)
+                            size = len(data)
+                        retained.append({
+                            "name": entry["name"], "sha256": entry["expected_sha256"],
+                            "storage_name": storage_name, "size_bytes": size,
+                        })
+                        self.db.execute(
+                            "UPDATE evidence SET name=?,display_name=? WHERE run_id=? AND name=?",
+                            (storage_name, entry["name"], row["id"], entry["storage_name"]))
+                    manifest = {
+                        "id": row["id"], "title": row["title"], "summary": row["summary"],
+                        "owner": row["owner"], "is_demo": bool(row["is_demo"]),
+                        "legacy_capture": True, "evidence": retained,
+                    }
+                    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"),
+                                           ensure_ascii=False)
+                    self.db.execute("INSERT INTO snapshots VALUES (?,?,?,?,?,?)",
+                                    (snapshot_id, row["id"], row["version"],
+                                     hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+                                     canonical, now()))
+                    self.db.execute("UPDATE runs SET snapshot_id=? WHERE id=?",
+                                    (snapshot_id, row["id"]))
+        except BaseException:
+            for destination in created:
+                shutil.rmtree(destination, ignore_errors=True)
+            raise
 
     def _seed(self):
         fixture = json.loads((self.fixture_dir / "fixtures.json").read_text())
@@ -160,7 +275,8 @@ class ReviewStore:
             for run in fixture["runs"]:
                 timestamp = now()
                 self.db.execute(
-                    "INSERT INTO runs VALUES (?, ?, ?, ?, ?, 1, ?)",
+                    "INSERT INTO runs (id,title,summary,owner,status,version,updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, 1, ?)",
                     (run["id"], run["title"], run["summary"],
                      run.get("owner", ""), run.get("status", "needs_review"), timestamp))
                 for entry in run["evidence"]:
@@ -183,11 +299,11 @@ class ReviewStore:
         return row
 
     def _event(self, run_id, actor, action, note):
-        version = self._row(run_id)["version"]
+        row = self._row(run_id)
         self.db.execute(
-            "INSERT INTO events (run_id,actor,action,note,run_version,created_at) "
-            "VALUES (?,?,?,?,?,?)",
-            (run_id, actor, action, note, version, now()))
+            "INSERT INTO events (run_id,actor,action,note,run_version,created_at,snapshot_id) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (run_id, actor, action, note, row["version"], now(), row["snapshot_id"]))
 
     def events(self, run_id=None):
         if run_id is None:
@@ -200,12 +316,14 @@ class ReviewStore:
     def evidence(self, run_id):
         entries = []
         for row in self.db.execute(
-                "SELECT name,expected_sha256 FROM evidence WHERE run_id=? ORDER BY id",
+                "SELECT name,expected_sha256,display_name FROM evidence WHERE run_id=? ORDER BY id",
                 (run_id,)):
             entry = dict(row)
+            entry["storage_name"] = entry["name"]
+            entry["name"] = entry.pop("display_name") or entry["name"]
             entry["actual_sha256"] = None
             try:
-                path = safe_file(self.evidence_dir, entry["name"])
+                path = safe_file(self.evidence_dir, entry["storage_name"])
                 if not path.is_file():
                     entry["status"] = "missing"
                 else:
@@ -232,13 +350,80 @@ class ReviewStore:
 
     def detail(self, run_id):
         run = dict(self._row(run_id))
+        run["is_demo"] = bool(run["is_demo"])
         entries = self.evidence(run_id)
         run["recorded_status"] = run["status"]
         run["evidence_status"] = self.evidence_status(entries)
         run["evidence_count"] = len(entries)
         if run["evidence_status"] != "verified":
             run["status"] = "blocked"
-        return {"run": run, "evidence": entries, "events": self.events(run_id), "demo": True}
+        return {"run": run, "evidence": entries, "events": self.events(run_id),
+                "snapshots": self.snapshots(run_id), "demo": run["is_demo"]}
+
+    def snapshots(self, run_id):
+        rows = self.db.execute("SELECT * FROM snapshots WHERE run_id=? ORDER BY run_version DESC",
+                               (run_id,))
+        values = []
+        for row in rows:
+            value = dict(row)
+            value["manifest"] = json.loads(value.pop("manifest_json"))
+            values.append(value)
+        return values
+
+    def submit(self, body):
+        """Create or revise a run with a fresh, retained evidence snapshot."""
+        try:
+            submission = prepare_submission(body)
+        except SubmissionError as error:
+            raise APIError(400, str(error))
+        run_id = submission["id"]
+        snapshot_id = uuid.uuid4().hex
+        destination = safe_file(self.evidence_dir, "snapshots/" + snapshot_id)
+        created = False
+        try:
+            with self.db:
+                self.db.execute("BEGIN IMMEDIATE")
+                row = self.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+                if row is None:
+                    if body.get("expected_version") is not None:
+                        raise APIError(409, "This run does not exist. Create it without a revision.")
+                    version = 1
+                    self.db.execute(
+                        "INSERT INTO runs (id,title,summary,owner,status,version,updated_at,is_demo,snapshot_id) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (run_id, submission["title"], submission["summary"], submission["owner"],
+                         "needs_review", version, now(), int(submission["is_demo"]), snapshot_id))
+                    action = "submitted"
+                else:
+                    if self._version(body) != row["version"]:
+                        raise APIError(409, "This run changed. Refresh before submitting a revision.")
+                    version = row["version"] + 1
+                    self.db.execute(
+                        "UPDATE runs SET title=?,summary=?,owner=?,status='needs_review',version=?,"
+                        "updated_at=?,is_demo=?,snapshot_id=? WHERE id=?",
+                        (submission["title"], submission["summary"], submission["owner"], version,
+                         now(), int(submission["is_demo"]), snapshot_id, run_id))
+                    action = "resubmitted"
+                destination.mkdir(parents=True, exist_ok=False)
+                created = True
+                for item in submission["files"]:
+                    (destination / item["name"]).write_bytes(item["data"])
+                self.db.execute(
+                    "INSERT INTO snapshots VALUES (?,?,?,?,?,?)",
+                    (snapshot_id, run_id, version, submission["manifest_sha256"],
+                     json.dumps(submission["manifest"], ensure_ascii=False), now()))
+                self.db.execute("DELETE FROM evidence WHERE run_id=?", (run_id,))
+                for item in submission["files"]:
+                    self.db.execute(
+                        "INSERT INTO evidence (run_id,name,expected_sha256,display_name) VALUES (?,?,?,?)",
+                        (run_id, "snapshots/{}/{}".format(snapshot_id, item["name"]),
+                         item["sha256"], item["name"]))
+                self._event(run_id, submission["actor"], action, submission["note"])
+        except BaseException:
+            if created:
+                shutil.rmtree(destination, ignore_errors=True)
+            raise
+        return self.detail(run_id)
 
     def evidence_preview(self, run_id, index):
         self._row(run_id)
@@ -247,9 +432,38 @@ class ReviewStore:
         entries = self.evidence(run_id)
         if index >= len(entries):
             raise APIError(404, "Evidence entry not found.")
-        entry = entries[index]
+        return self._preview(entries[index])
+
+    def snapshot_preview(self, run_id, snapshot_id, index):
+        self._row(run_id)
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise APIError(400, "Evidence index must be a nonnegative integer.")
+        row = self.db.execute("SELECT * FROM snapshots WHERE id=? AND run_id=?",
+                              (snapshot_id, run_id)).fetchone()
+        if row is None:
+            raise APIError(404, "Evidence snapshot not found for this run.")
+        manifest = json.loads(row["manifest_json"])
+        entries = manifest["evidence"]
+        if index >= len(entries):
+            raise APIError(404, "Evidence entry not found.")
+        item = entries[index]
+        entry = {
+            "name": item["name"],
+            "storage_name": item.get("storage_name", "snapshots/{}/{}".format(
+                snapshot_id, item["name"])),
+            "status": "missing",
+        }
         try:
-            path = safe_file(self.evidence_dir, entry["name"])
+            path = safe_file(self.evidence_dir, entry["storage_name"])
+            if path.is_file():
+                entry["status"] = "verified" if file_sha256(path) == item["sha256"] else "changed"
+        except (OSError, ValueError):
+            pass
+        return self._preview(entry)
+
+    def _preview(self, entry):
+        try:
+            path = safe_file(self.evidence_dir, entry["storage_name"])
         except ValueError:
             raise APIError(403, "Invalid evidence file path.")
         if entry["status"] == "missing":
@@ -268,15 +482,22 @@ class ReviewStore:
 
     def state(self):
         run_ids = [row["id"] for row in self.db.execute("SELECT id FROM runs ORDER BY id")]
-        return {"runs": [self.detail(run_id)["run"] for run_id in run_ids],
-                "events": self.events(), "demo": True}
+        runs = [self.detail(run_id)["run"] for run_id in run_ids]
+        # A later synthetic revision cannot relabel retained real history as demo
+        # data. Export includes every snapshot, not just each run's current state.
+        history_is_demo = all(
+            json.loads(row["manifest_json"]).get("is_demo") is True
+            for row in self.db.execute("SELECT manifest_json FROM snapshots"))
+        return {"runs": runs, "events": self.events(),
+                "demo": all(run["is_demo"] for run in runs) and history_is_demo}
 
     def export(self):
         state = self.state()
         return {
-            "schema_version": 1,
-            "demo": True,
-            "notice": "SYNTHETIC demonstration data. No real experiments or researchers.",
+            "schema_version": 2,
+            "demo": state["demo"],
+            "notice": ("SYNTHETIC demonstration data." if state["demo"]
+                       else "Local workspace export. Contains user-submitted records; review before sharing."),
             "exported_at": now(),
             "runs": [self.detail(run["id"]) for run in state["runs"]],
             "events": state["events"],
@@ -340,7 +561,7 @@ class ReviewHTTPServer(HTTPServer):
 
 
 class ReviewHandler(BaseHTTPRequestHandler):
-    server_version = "ReviewOps/0.1"
+    server_version = "ReviewOps/0.2"
 
     def _allowed_hosts(self):
         port = self.server.server_address[1]
@@ -356,7 +577,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
             raise APIError(403, "Unexpected Origin.")
         if write:
             tokens = self.headers.get_all("X-ReviewOps-Token", [])
-            if len(tokens) != 1 or not secrets.compare_digest(tokens[0], self.server.token):
+            if (len(tokens) != 1 or not tokens[0].isascii()
+                    or not secrets.compare_digest(tokens[0], self.server.token)):
                 raise APIError(403, "Missing or invalid local request token. Refresh the page.")
 
     def _send(self, status, payload, content_type="application/json; charset=utf-8",
@@ -382,7 +604,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _error(self, error):
-        self._send(error.status, {"error": error.message, "demo": True})
+        self._send(error.status, {"error": error.message})
 
     def do_GET(self):
         try:
@@ -403,6 +625,13 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 if len(index) > 9 or not index.isascii() or not index.isdigit():
                     raise APIError(400, "Evidence index must be a nonnegative integer.")
                 self._send(200, self.server.store.evidence_preview(parts[3], int(index)))
+            elif (path.startswith("/api/runs/") and len(path.split("/")) == 8
+                  and path.split("/")[4] == "snapshots" and path.split("/")[6] == "evidence"):
+                parts = path.split("/")
+                index = parts[7]
+                if len(index) > 9 or not index.isascii() or not index.isdigit():
+                    raise APIError(400, "Evidence index must be a nonnegative integer.")
+                self._send(200, self.server.store.snapshot_preview(parts[3], parts[5], int(index)))
             elif path.startswith("/api/"):
                 raise APIError(404, "API route not found.")
             else:
@@ -440,15 +669,18 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if length < 0:
                 raise APIError(400, "Invalid Content-Length.")
             if length > MAX_BODY_BYTES:
-                raise APIError(413, "Request exceeds the 16 KiB limit.")
+                raise APIError(413, "Request exceeds the 2 MiB limit.")
             if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 raise APIError(415, "Use application/json.")
             try:
-                body = json.loads(self.rfile.read(length))
-            except (ValueError, UnicodeDecodeError):
-                raise APIError(400, "Invalid JSON.")
+                body = parse_json(self.rfile.read(length))
+            except SubmissionError as error:
+                raise APIError(400, str(error))
             if not isinstance(body, dict):
                 raise APIError(400, "The request body must be a JSON object.")
+            if urlsplit(self.path).path == "/api/submissions":
+                self._send(201, self.server.store.submit(body))
+                return
             parts = unquote(urlsplit(self.path).path).split("/")
             if len(parts) != 5 or parts[1:3] != ["api", "runs"]:
                 raise APIError(404, "API route not found.")
@@ -474,16 +706,30 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--data-dir", type=Path, default=PROJECT_DIR / "runtime")
+    parser.add_argument("--import-manifest", type=Path,
+                        help="Import one explicitly selected JSON manifest and exit.")
+    parser.add_argument("--actor", help="Actor label recorded for a manifest import.")
+    parser.add_argument("--empty", action="store_true",
+                        help="Start a new data directory without synthetic demo records.")
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535")
-    store = ReviewStore(args.data_dir)
+    store = ReviewStore(args.data_dir, seed_demo=not args.empty)
+    if args.import_manifest is not None:
+        try:
+            result = store.submit(read_manifest(args.import_manifest, actor=args.actor))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except (SubmissionError, APIError, OSError) as error:
+            parser.exit(1, "Import failed: {}\n".format(error))
+        finally:
+            store.close()
+        return
     try:
         server = ReviewHTTPServer(("127.0.0.1", args.port), store)
     except OSError as error:
         store.close()
         parser.exit(1, "Could not start local ReviewOps: {}\n".format(error))
-    print("ReviewOps · SYNTHETIC local demo", flush=True)
+    print("ReviewOps · local experiment review", flush=True)
     print("Open http://127.0.0.1:{}/".format(server.server_address[1]), flush=True)
     print("Data persists in {}".format(store.data_dir), flush=True)
     print("Stop with Ctrl+C. No cloud service or model API is used.", flush=True)
