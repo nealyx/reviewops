@@ -1,6 +1,6 @@
 # ReviewOps researcher pilot
 
-ReviewOps is a local workflow prototype. Its intended users are researchers coordinating experiment evidence and review decisions. The startup cases are synthetic; the separate [published-audit walkthrough](docs/public-audit-walkthrough.md) uses a real check of public saved outputs. Neither constitutes a researcher pilot, and no Millennium workflow has been validated yet.
+ReviewOps is a local workflow prototype. Its intended users are researchers coordinating experiment evidence and review decisions. The startup cases and import example are synthetic. No researcher pilot has been performed, and no Millennium workflow has been validated yet.
 
 ## Questions for the first conversation
 

@@ -14,10 +14,8 @@ comments live somewhere else, and nobody is sure whether an approval refers to
 the latest files.
 
 **Status: working local prototype; researcher pilot pending.** The five startup
-runs and generic import example are synthetic. A separate
-[published-audit walkthrough](docs/public-audit-walkthrough.md) uses an actual
-verification of public EGRA results, with source hashes and no recorded human
-decision. This is an independent project built with AI-assisted engineering.
+runs and import example are synthetic. This is an independent project built
+with AI-assisted engineering.
 No adoption, time savings, or scientific outcome has been measured.
 
 [Manifest format](docs/manifests.md) · [Design and boundaries](docs/design.md) ·
@@ -78,24 +76,6 @@ python3 app.py --data-dir ./runtime/import-demo --port 8788
 The importer copies only files listed by the selected manifest. Later edits to
 the source files do not change the submitted snapshot.
 See the [format and revision example](docs/manifests.md).
-
-## Try a published research audit
-
-The [EGRA walkthrough](docs/public-audit-walkthrough.md) shows how a real
-saved-output check becomes a reviewable handoff. Its included report verifies
-46 public CSV hashes and compares 774 summary values. The package records the
-exact source commit, checking program, file-set identity, report, and limits.
-
-```sh
-python3 app.py --empty --data-dir runtime/published-audit \
-  --import-manifest examples/published-audit/manifest.json
-python3 app.py --data-dir runtime/published-audit --port 8790
-```
-
-The record starts **Needs review**, unassigned, with four evidence files and one
-automated submission event. Importing the report does not rerun the analysis or
-approve its conclusions. The walkthrough also provides a recipe to recompute
-the checks from the pinned public source and import a fresh report.
 
 ## What happens when evidence changes?
 
@@ -162,8 +142,7 @@ keyboard focus after queue selection and file removal, and recoverable
 submission errors using a small DOM model. They do not
 replace checking keyboard navigation and layout in a browser.
 
-Tests use temporary directories, synthetic cases, and the explicitly labeled
-published-audit package. They cover integrity gates,
+Tests use temporary directories and synthetic cases. They cover integrity gates,
 retained revisions, approval reset, stale updates, failed-write rollback,
 restart persistence, manifest confinement, HTTP boundaries, previews, and export.
 The workflow runs on Linux and macOS; its badge reports the latest hosted result.
