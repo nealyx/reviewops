@@ -38,11 +38,11 @@ Observed in the local app:
    submission.
 9. Downloaded the audit export. No browser console errors were observed.
 
-The observed 475-pixel viewport had no horizontal page overflow. A requested
-desktop viewport override did not change the observed width, so this pass does
-not claim verification at that requested size.
+The observed 475-pixel and 1,280-pixel viewports had no horizontal page overflow.
+The narrower view stacked the queue and detail; the desktop view displayed them
+side by side. These widths were read from the actual rendered pages.
 
-[Captured synthetic workflow](assets/reviewops-workflow.png).
+[Captured synthetic workflow](assets/reviewops-workflow.jpg).
 
 ## Limits
 
