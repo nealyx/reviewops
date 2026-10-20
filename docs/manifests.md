@@ -69,6 +69,8 @@ allowed for an incomplete handoff, but that package stays blocked.
 - Titles: 160 characters; summaries/notes: 4,000 each; actor/owner: 200 each.
   Owner may be empty.
 - `is_demo` must explicitly be a JSON boolean.
+- JSON objects cannot repeat keys, numbers must be finite, and container nesting
+  is limited to 32 levels independently of Python's decoder recursion threshold.
 - At most 20 files, valid UTF-8, 256 KiB each, 1 MiB total.
 - Display names: simple filenames, at most 120 characters, unique ignoring
   letter case. Directories, traversal, and unsafe filename forms are refused.

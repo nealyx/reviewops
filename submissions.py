@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 from pathlib import Path, PurePosixPath
 
@@ -9,6 +10,7 @@ MAX_FILES = 20
 MAX_FILE_BYTES = 256 * 1024
 MAX_TOTAL_BYTES = 1024 * 1024
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
+MAX_JSON_DEPTH = 32
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}$")
 
@@ -30,10 +32,28 @@ def parse_json(content):
     def finite_constant(value):
         raise SubmissionError("JSON cannot contain NaN or Infinity.")
 
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise SubmissionError("JSON numbers must be finite.")
+        return number
+
     try:
         if isinstance(content, bytes):
             content = content.decode("utf-8")
-        return json.loads(content, object_pairs_hook=unique_object, parse_constant=finite_constant)
+        result = json.loads(content, object_pairs_hook=unique_object,
+                            parse_constant=finite_constant, parse_float=finite_float)
+        # Python versions have different decoder recursion thresholds. Enforce
+        # our own structural bound instead of relying on RecursionError.
+        pending = [(result, 0)]
+        while pending:
+            value, depth = pending.pop()
+            if isinstance(value, (dict, list)):
+                if depth >= MAX_JSON_DEPTH:
+                    raise SubmissionError("JSON nesting exceeds 32 levels.")
+                children = value.values() if isinstance(value, dict) else value
+                pending.extend((child, depth + 1) for child in children)
+        return result
     except (UnicodeError, ValueError, RecursionError) as error:
         if isinstance(error, SubmissionError):
             raise
