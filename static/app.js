@@ -21,6 +21,9 @@ function message(text, error = false) {
 function submissionMessage(text, error=false) {
   $("submission-message").hidden=!text; $("submission-message").textContent=text;
   $("submission-message").className="form-message"+(error?" error":"");
+  // Errors must be visible even when the submit button is at the bottom of a
+  // scrolled dialog. This target is outside the temporarily disabled fieldset.
+  if(text&&error&&$("submission-dialog").open)$("submission-message").focus();
 }
 async function api(path, body) {
   const options = body === undefined ? {} : {method:"POST",headers:{"Content-Type":"application/json","X-ReviewOps-Token":state.csrf_token},body:JSON.stringify(body)};
@@ -53,7 +56,7 @@ function renderWorkspaceNotice() {
   const lead=!state.runs.length?"This workspace is empty. Add an experiment and its text evidence to begin.":historicalUserData?"Current records are marked synthetic, but retained history contains user submissions. Review the full history before sharing an export.":demo&&real?"This workspace contains synthetic examples and user submissions. Each record is labeled.":demo?"The current experiments are invented examples. Add an experiment to review your own text evidence.":"This local workspace contains user-submitted experiments.";
   $("workspace-notice").textContent=lead+" A recorded approval is a reviewer’s decision, not a scientific validation or proof.";
 }
-function renderQueue() {
+function renderQueue(restoreFocus=true) {
   renderWorkspaceNotice();
   $("count-total").textContent=state.runs.length;
   $("count-review").textContent=state.runs.filter(r=>r.status==="needs_review"||r.status==="changes_requested").length;
@@ -62,10 +65,18 @@ function renderQueue() {
   const term=$("search").value.toLowerCase(), filter=$("status-filter").value;
   const runs=state.runs.filter(r=>(!filter||r.status===filter)&&`${r.id} ${r.title} ${r.owner||""}`.toLowerCase().includes(term));
   $("queue-count").textContent=`${runs.length} shown`;
-  const list=$("run-list"); list.replaceChildren();
-  if(!runs.length) { list.append(el("p","empty",state.runs.length?"No experiments match your filters.":"Add your first experiment to begin a review.")); return; }
+  const list=$("run-list");
+  const focusedId=restoreFocus&&list.contains(document.activeElement)?document.activeElement.dataset.runId:null;
+  let focusTarget=null; list.replaceChildren();
+  if(!runs.length) {
+    list.append(el("p","empty",state.runs.length?"No experiments match your filters.":"Add your first experiment to begin a review."));
+    if(focusedId)$("search").focus();
+    return;
+  }
   for(const run of runs) {
     const button=el("button","run"+(selected===run.id?" selected":""));
+    button.dataset.runId=run.id;
+    if(run.id===focusedId)focusTarget=button;
     button.type="button"; button.setAttribute("aria-pressed",String(selected===run.id));
     button.setAttribute("aria-label",`${run.title}, ${labels[run.status]||run.status}, ${run.is_demo?"synthetic example":"user submission"}`);
     const top=el("div","run-top"); top.append(el("span","run-code",run.id),badge(run.status));
@@ -74,7 +85,12 @@ function renderQueue() {
     const count=run.evidence_count||0;
     bottom.append(owner,el("span","",`${count} ${count===1?"file":"files"} · ${run.is_demo?"Demo":"Submitted"}`));
     button.append(top,el("div","run-title",run.title),bottom);
-    button.addEventListener("click",()=>{if(!busy)selectRun(run.id);}); list.append(button);
+    button.addEventListener("click",()=>{if(!busy)return selectRun(run.id,false,button);}); list.append(button);
+  }
+  // A response may arrive after the user has advanced to another queue item.
+  if(focusedId) {
+    if(focusTarget)focusTarget.focus({preventScroll:true});
+    else $("search").focus();
   }
 }
 function evidencePreview(path, label="Read evidence") {
@@ -157,11 +173,16 @@ function renderDetail() {
   }
   syncControls();
 }
-async function selectRun(id, preserveNote=false) {
+async function selectRun(id, preserveNote=false, activatedButton=null) {
   if(selected!==id)message(""); const ticket=++requestId;
   try {
     const result=await api(`/api/runs/${encodeURIComponent(id)}`); if(ticket!==requestId)return;
-    selected=id; detail=result; reviewStale=false; if(!preserveNote)$("note").value=""; renderQueue(); renderDetail(); return true;
+    // Rebuilding the queue removes its focused button. Move an explicit
+    // activation into the detail, but never interrupt focus moved during loading.
+    const focusDetail=activatedButton&&document.activeElement===activatedButton;
+    selected=id; detail=result; reviewStale=false; if(!preserveNote)$("note").value=""; renderQueue(!focusDetail); renderDetail();
+    if(focusDetail)$("detail-title").focus();
+    return true;
   } catch(e) {message(e.message,true);return false;}
 }
 async function refresh(showMessage=false, preserveNote=false) {
@@ -212,7 +233,9 @@ function fileIssue(value) {
 }
 function renderFiles() {
   if(!draft)return;
-  const list=$("submission-file-list"); list.replaceChildren();
+  const list=$("submission-file-list");
+  const focusedIndex=Array.from(list.children).findIndex(row=>row.contains(document.activeElement));
+  const removeButtons=[]; list.replaceChildren();
   const total=draft.files.reduce((n,item)=>n+item.file.size,0);
   $("file-summary").textContent=draft.files.length?`${draft.files.length}/20 files · ${sizeLabel(total)}`:"No files selected";
   $("no-evidence-note").hidden=draft.files.length>0;
@@ -220,11 +243,15 @@ function renderFiles() {
     const row=el("div","selected-file"), info=el("div","selected-file-info");
     info.append(el("strong","",item.file.name),el("span","small muted",`${sizeLabel(item.file.size)} · ${item.error?"Needs attention":item.reading?"Reading…":item.content===undefined?"Waiting":"UTF-8 text"}`));
     const remove=el("button","remove-file","Remove"); remove.type="button"; remove.disabled=busy; remove.setAttribute("aria-label",`Remove ${item.file.name}`);
-    remove.addEventListener("click",()=>{if(busy)return;draft.files=draft.files.filter(f=>f!==item);draft.fileMessage="";renderFiles();decodeFiles(draft);}); row.append(info,remove);list.append(row);
+    remove.addEventListener("click",()=>{if(busy)return;draft.files=draft.files.filter(f=>f!==item);draft.fileMessage="";renderFiles();return decodeFiles(draft);});
+    removeButtons.push(remove); row.append(info,remove);list.append(row);
   }
   const issue=fileIssue(draft);
   if(issue)list.append(el("p","file-error",issue));
   syncControls();
+  // Retain keyboard position through removal and asynchronous decoding redraws.
+  // After removal choose the next file, then the previous one, then the picker.
+  if(focusedIndex>=0)(removeButtons[Math.min(focusedIndex,removeButtons.length-1)]||$("submission-files")).focus();
 }
 async function decodeFiles(value) {
   if(value.files.length>limits.files||value.files.reduce((n,f)=>n+f.file.size,0)>limits.total)return;
@@ -320,8 +347,8 @@ async function submitExperiment(event) {
     } else message("Submission was saved, but the workspace could not refresh: "+e.message+" Use Refresh evidence to load it.",true);
   } finally {setBusy(false);}
 }
-$("search").addEventListener("input",renderQueue);
-$("status-filter").addEventListener("change",renderQueue);
+$("search").addEventListener("input",()=>renderQueue());
+$("status-filter").addEventListener("change",()=>renderQueue());
 $("refresh").addEventListener("click",async()=>{if(busy)return;setBusy(true);try{await refresh(true,true);}catch(e){message(e.message,true);}finally{setBusy(false);}});
 $("assign").addEventListener("click",()=>mutate("assign"));
 $("approve").addEventListener("click",()=>mutate("approved"));

@@ -154,6 +154,11 @@ node --test tests/test_frontend.js
 
 Node is not needed to run the app.
 
+The frontend regressions exercise evidence previews, retained decision drafts,
+keyboard focus after queue selection and file removal, and recoverable
+submission errors using a small DOM model. They do not
+replace checking keyboard navigation and layout in a browser.
+
 Tests use temporary directories, synthetic cases, and the explicitly labeled
 published-audit package. They cover integrity gates,
 retained revisions, approval reset, stale updates, failed-write rollback,

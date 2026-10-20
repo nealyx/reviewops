@@ -30,6 +30,7 @@
 .manifest-preview summary,.latest-record summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--green)}
 .manifest-preview pre{max-height:240px;overflow:auto;background:#f5f7f2;padding:12px;border-radius:5px;font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere}
 summary:focus-visible{outline:3px solid #80b799;outline-offset:3px}
+#detail-title:focus-visible,#submission-message:focus-visible{outline:3px solid #80b799;outline-offset:3px;border-radius:3px}
 dialog{width:min(720px,calc(100% - 32px));max-height:90vh;max-height:90svh;padding:0;border:1px solid var(--line);border-radius:14px;color:var(--ink);background:#fff;box-shadow:0 24px 90px #11291e40;overflow:auto}
 dialog::backdrop{background:#142d2466;backdrop-filter:blur(3px)}
 #submission-form{padding:27px 30px 18px}
