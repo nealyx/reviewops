@@ -22,7 +22,7 @@ No adoption, time savings, or scientific outcome has been measured.
 
 [Manifest format](docs/manifests.md) · [Design and boundaries](docs/design.md) ·
 [Validation and preview](docs/validation.md) · [Researcher pilot](PILOT.md) ·
-[Download a release](https://github.com/nealyx/reviewops/releases)
+[Contributing](CONTRIBUTING.md) · [Download a release](https://github.com/nealyx/reviewops/releases)
 
 ![ReviewOps with a synthetic experiment awaiting review after a revision](docs/assets/reviewops-overview.jpg)
 
