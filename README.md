@@ -111,6 +111,8 @@ the checks from the pinned public source and import a fresh report.
 Each assignment, decision, or submission increments the **record version**.
 Only submissions create a new **evidence snapshot**. Stale versions are rejected,
 so two open tabs cannot silently overwrite one another's actions.
+Each detail, queue, and audit export also reads a consistent database snapshot
+when a separate CLI import commits a revision during the request.
 
 ## Data and operating limits
 
